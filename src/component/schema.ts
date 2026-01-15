@@ -2,9 +2,12 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  comments: defineTable({
-    text: v.string(),
-    userId: v.string(), // Note: you can't use v.id referring to external tables
-    targetId: v.string(),
-  }).index("targetId", ["targetId"]),
+  staticAssets: defineTable({
+    path: v.string(), // URL path, e.g., "/index.html", "/assets/main-abc123.js"
+    storageId: v.id("_storage"), // Reference to Convex file storage
+    contentType: v.string(), // MIME type, e.g., "text/html; charset=utf-8"
+    deploymentId: v.string(), // UUID for garbage collection
+  })
+    .index("by_path", ["path"])
+    .index("by_deploymentId", ["deploymentId"]),
 });

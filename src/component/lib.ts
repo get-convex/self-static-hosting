@@ -1,91 +1,139 @@
 import { v } from "convex/values";
-import { httpActionGeneric } from "convex/server";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server.js";
-import { api, internal } from "./_generated/api.js";
+import { mutation, query, internalMutation } from "./_generated/server.js";
 import schema from "./schema.js";
 
-const commentValidator = schema.tables.comments.validator.extend({
-  _id: v.id("comments"),
+// Validator for static asset documents (including system fields)
+const staticAssetValidator = schema.tables.staticAssets.validator.extend({
+  _id: v.id("staticAssets"),
   _creationTime: v.number(),
 });
 
-export const list = query({
-  args: {
-    targetId: v.string(),
-    limit: v.optional(v.number()),
-  },
-  returns: v.array(commentValidator),
+/**
+ * Look up an asset by its URL path.
+ */
+export const getByPath = query({
+  args: { path: v.string() },
+  returns: v.union(staticAssetValidator, v.null()),
   handler: async (ctx, args) => {
     return await ctx.db
-      .query("comments")
-      .withIndex("targetId", (q) => q.eq("targetId", args.targetId))
-      .order("desc")
+      .query("staticAssets")
+      .withIndex("by_path", (q) => q.eq("path", args.path))
+      .unique();
+  },
+});
+
+/**
+ * Generate a signed URL for uploading a file to Convex storage.
+ * Note: This is kept for backwards compatibility but the recommended approach
+ * is to use the app's storage directly via exposeUploadApi().
+ */
+export const generateUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Record an asset in the database after uploading to storage.
+ * If an asset already exists at this path, returns the old storageId for cleanup.
+ * 
+ * Note: Storage files are stored in the app's storage, not the component's storage.
+ * The caller is responsible for deleting the returned storageId from app storage.
+ */
+export const recordAsset = mutation({
+  args: {
+    path: v.string(),
+    storageId: v.id("_storage"),
+    contentType: v.string(),
+    deploymentId: v.string(),
+  },
+  returns: v.union(v.id("_storage"), v.null()),
+  handler: async (ctx, args) => {
+    // Check if asset already exists at this path
+    const existing = await ctx.db
+      .query("staticAssets")
+      .withIndex("by_path", (q) => q.eq("path", args.path))
+      .unique();
+
+    let oldStorageId = null;
+    if (existing) {
+      oldStorageId = existing.storageId;
+      // Delete old record
+      await ctx.db.delete(existing._id);
+    }
+
+    // Insert new asset
+    await ctx.db.insert("staticAssets", {
+      path: args.path,
+      storageId: args.storageId,
+      contentType: args.contentType,
+      deploymentId: args.deploymentId,
+    });
+
+    // Return old storageId so caller can delete from app storage
+    return oldStorageId;
+  },
+});
+
+/**
+ * Garbage collect assets from old deployments.
+ * Returns the storageIds that need to be deleted from app storage.
+ */
+export const gcOldAssets = mutation({
+  args: {
+    currentDeploymentId: v.string(),
+  },
+  returns: v.array(v.id("_storage")),
+  handler: async (ctx, args) => {
+    const oldAssets = await ctx.db.query("staticAssets").collect();
+    const storageIdsToDelete: Array<typeof args.currentDeploymentId extends string ? string : never> = [];
+
+    for (const asset of oldAssets) {
+      if (asset.deploymentId !== args.currentDeploymentId) {
+        storageIdsToDelete.push(asset.storageId as unknown as string);
+        // Delete database record
+        await ctx.db.delete(asset._id);
+      }
+    }
+
+    return storageIdsToDelete as unknown as Array<ReturnType<typeof v.id<"_storage">>["type"]>;
+  },
+});
+
+/**
+ * List all assets (useful for debugging).
+ */
+export const listAssets = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(staticAssetValidator),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("staticAssets")
+      .order("asc")
       .take(args.limit ?? 100);
   },
 });
 
-export const getComment = internalQuery({
-  args: {
-    commentId: v.id("comments"),
-  },
-  returns: v.union(v.null(), commentValidator),
-  handler: async (ctx, args) => {
-    return await ctx.db.get("comments", args.commentId);
-  },
-});
-export const add = mutation({
-  args: {
-    text: v.string(),
-    userId: v.string(),
-    targetId: v.string(),
-  },
-  returns: v.id("comments"),
-  handler: async (ctx, args) => {
-    const commentId = await ctx.db.insert("comments", {
-      text: args.text,
-      userId: args.userId,
-      targetId: args.targetId,
-    });
-    return commentId;
-  },
-});
-export const updateComment = internalMutation({
-  args: {
-    commentId: v.id("comments"),
-    text: v.string(),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch("comments", args.commentId, { text: args.text });
-  },
-});
+/**
+ * Delete all assets records (useful for cleanup).
+ * Returns storageIds that need to be deleted from app storage.
+ */
+export const deleteAllAssets = internalMutation({
+  args: {},
+  returns: v.array(v.id("_storage")),
+  handler: async (ctx) => {
+    const assets = await ctx.db.query("staticAssets").collect();
+    const storageIds: Array<string> = [];
 
-export const translate = action({
-  args: {
-    commentId: v.id("comments"),
-    baseUrl: v.string(),
-  },
-  returns: v.string(),
-  handler: async (ctx, args) => {
-    const comment = (await ctx.runQuery(internal.lib.getComment, {
-      commentId: args.commentId,
-    })) as { text: string; userId: string } | null;
-    if (!comment) {
-      throw new Error("Comment not found");
+    for (const asset of assets) {
+      storageIds.push(asset.storageId as unknown as string);
+      await ctx.db.delete(asset._id);
     }
-    const response = await fetch(
-      `${args.baseUrl}/api/translate?english=${encodeURIComponent(comment.text)}`,
-    );
-    const data = await response.text();
-    await ctx.runMutation(internal.lib.updateComment, {
-      commentId: args.commentId,
-      text: data,
-    });
-    return data;
+
+    return storageIds as unknown as Array<ReturnType<typeof v.id<"_storage">>["type"]>;
   },
 });

@@ -24,31 +24,58 @@ import type { FunctionReference } from "convex/server";
 export type ComponentApi<Name extends string | undefined = string | undefined> =
   {
     lib: {
-      add: FunctionReference<
+      gcOldAssets: FunctionReference<
         "mutation",
         "internal",
-        { targetId: string; text: string; userId: string },
+        { currentDeploymentId: string },
+        Array<string>,
+        Name
+      >;
+      generateUploadUrl: FunctionReference<
+        "mutation",
+        "internal",
+        {},
         string,
         Name
       >;
-      list: FunctionReference<
+      getByPath: FunctionReference<
         "query",
         "internal",
-        { limit?: number; targetId: string },
+        { path: string },
+        {
+          _creationTime: number;
+          _id: string;
+          contentType: string;
+          deploymentId: string;
+          path: string;
+          storageId: string;
+        } | null,
+        Name
+      >;
+      listAssets: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number },
         Array<{
           _creationTime: number;
           _id: string;
-          targetId: string;
-          text: string;
-          userId: string;
+          contentType: string;
+          deploymentId: string;
+          path: string;
+          storageId: string;
         }>,
         Name
       >;
-      translate: FunctionReference<
-        "action",
+      recordAsset: FunctionReference<
+        "mutation",
         "internal",
-        { baseUrl: string; commentId: string },
-        string,
+        {
+          contentType: string;
+          deploymentId: string;
+          path: string;
+          storageId: string;
+        },
+        string | null,
         Name
       >;
     };

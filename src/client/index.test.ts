@@ -1,36 +1,66 @@
 import { describe, expect, test } from "vitest";
-import { exposeApi } from "./index.js";
+import { exposeUploadApi, getMimeType } from "./index.js";
 import { anyApi, type ApiFromModules } from "convex/server";
 import { components, initConvexTest } from "./setup.test.js";
 
-export const { add, list } = exposeApi(components.selfStaticHosting, {
-  auth: async (ctx, _operation) => {
-    return (await ctx.auth.getUserIdentity())?.subject ?? "anonymous";
-  },
-  baseUrl: "https://pirate.monkeyness.com",
-});
+export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
+  exposeUploadApi(components.selfStaticHosting);
 
 const testApi = (
   anyApi as unknown as ApiFromModules<{
     "index.test": {
-      add: typeof add;
-      list: typeof list;
+      generateUploadUrl: typeof generateUploadUrl;
+      recordAsset: typeof recordAsset;
+      gcOldAssets: typeof gcOldAssets;
+      listAssets: typeof listAssets;
     };
   }>
 )["index.test"];
 
 describe("client tests", () => {
-  test("should be able to use client", async () => {
-    const t = initConvexTest().withIdentity({
-      subject: "user1",
+  test("should expose upload API functions", async () => {
+    const t = initConvexTest();
+
+    // Test generateUploadUrl
+    const uploadUrl = await t.mutation(testApi.generateUploadUrl, {});
+    expect(uploadUrl).toBeDefined();
+    expect(typeof uploadUrl).toBe("string");
+  });
+
+  test("should list empty assets initially", async () => {
+    const t = initConvexTest();
+
+    const assets = await t.query(testApi.listAssets, {});
+    expect(assets).toHaveLength(0);
+  });
+
+  test("gc should return 0 with no assets", async () => {
+    const t = initConvexTest();
+
+    const deleted = await t.mutation(testApi.gcOldAssets, {
+      currentDeploymentId: "test-deployment",
     });
-    const targetId = "test-subject-1";
-    await t.mutation(testApi.add, {
-      text: "My first comment",
-      targetId: targetId,
-    });
-    const comments = await t.query(testApi.list, { targetId });
-    expect(comments).toHaveLength(1);
-    expect(comments[0].text).toBe("My first comment");
+    expect(deleted).toBe(0);
+  });
+});
+
+describe("getMimeType", () => {
+  test("returns correct MIME types for common extensions", () => {
+    expect(getMimeType("/index.html")).toBe("text/html; charset=utf-8");
+    expect(getMimeType("/assets/main.js")).toBe(
+      "application/javascript; charset=utf-8",
+    );
+    expect(getMimeType("/styles/app.css")).toBe("text/css; charset=utf-8");
+    expect(getMimeType("/data.json")).toBe("application/json; charset=utf-8");
+    expect(getMimeType("/image.png")).toBe("image/png");
+    expect(getMimeType("/photo.jpg")).toBe("image/jpeg");
+    expect(getMimeType("/icon.svg")).toBe("image/svg+xml");
+    expect(getMimeType("/favicon.ico")).toBe("image/x-icon");
+    expect(getMimeType("/font.woff2")).toBe("font/woff2");
+  });
+
+  test("returns octet-stream for unknown extensions", () => {
+    expect(getMimeType("/file.xyz")).toBe("application/octet-stream");
+    expect(getMimeType("/unknown")).toBe("application/octet-stream");
   });
 });

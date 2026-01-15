@@ -1,20 +1,29 @@
 import { httpRouter } from "convex/server";
-import { registerRoutes } from "@get-convex/self-static-hosting";
+import { registerStaticRoutes } from "@get-convex/self-static-hosting";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
 
-// Initialize the component
+// Register static file serving routes.
+// This will serve your built static files from Convex storage.
+//
+// By default, it serves files at the root path "/" with SPA fallback enabled.
+// This means:
+// - /index.html -> serves index.html
+// - /assets/main.js -> serves the JS file
+// - /about -> serves index.html (SPA fallback for routes without file extension)
+registerStaticRoutes(http, components.selfStaticHosting);
 
-// Register HTTP routes for the component
-// This will expose a GET endpoint at /comments/last that returns the most recent comment
-registerRoutes(http, components.selfStaticHosting, {
-  pathPrefix: "/comments",
-});
+// You can also serve at a specific path prefix:
+// registerStaticRoutes(http, components.selfStaticHosting, {
+//   pathPrefix: "/app",
+//   spaFallback: true,
+// });
 
-// You can also register routes at different paths
-// selfStaticHosting.registerRoutes(http, {
-//   path: "/api/comments/latest",
+// You can disable SPA fallback for API-only static file serving:
+// registerStaticRoutes(http, components.selfStaticHosting, {
+//   pathPrefix: "/static",
+//   spaFallback: false,
 // });
 
 export default http;

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { initConvexTest } from "./setup.test";
 import { api } from "./_generated/api";
 
-describe("example", () => {
+describe("static hosting example", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
   });
@@ -11,16 +11,24 @@ describe("example", () => {
     vi.useRealTimers();
   });
 
-  test("addComment and listComments", async () => {
+  test("generateUploadUrl returns a URL", async () => {
     const t = initConvexTest();
-    const targetId = "test-subject-1";
-    const commentId = await t.mutation(api.example.addComment, {
-      text: "My comment",
-      targetId,
+    const uploadUrl = await t.mutation(api.example.generateUploadUrl, {});
+    expect(uploadUrl).toBeDefined();
+    expect(typeof uploadUrl).toBe("string");
+  });
+
+  test("listAssets returns empty array initially", async () => {
+    const t = initConvexTest();
+    const assets = await t.query(api.example.listAssets, {});
+    expect(assets).toHaveLength(0);
+  });
+
+  test("gcOldAssets returns 0 with no assets", async () => {
+    const t = initConvexTest();
+    const deleted = await t.mutation(api.example.gcOldAssets, {
+      currentDeploymentId: "test-deployment",
     });
-    expect(commentId).toBeDefined();
-    const comments = await t.query(api.example.listComments, { targetId });
-    expect(comments).toHaveLength(1);
-    expect(comments[0].text).toBe("My comment");
+    expect(deleted).toBe(0);
   });
 });

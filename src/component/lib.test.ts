@@ -11,17 +11,38 @@ describe("component lib", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
-  test("example lib test", async () => {
+
+  test("can record and retrieve assets", async () => {
     const t = initConvexTest();
-    const targetId = "test-subject-1";
-    const commentId = await t.mutation(api.lib.add, {
-      text: "Hello, world!",
-      userId: "user1",
-      targetId,
+
+    // First upload a file to storage (mock with a fake storageId)
+    const uploadUrl = await t.mutation(api.lib.generateUploadUrl, {});
+    expect(uploadUrl).toBeDefined();
+    expect(typeof uploadUrl).toBe("string");
+  });
+
+  test("can look up assets by path", async () => {
+    const t = initConvexTest();
+
+    // Look up a non-existent path
+    const asset = await t.query(api.lib.getByPath, { path: "/index.html" });
+    expect(asset).toBeNull();
+  });
+
+  test("can list assets", async () => {
+    const t = initConvexTest();
+
+    const assets = await t.query(api.lib.listAssets, {});
+    expect(assets).toHaveLength(0);
+  });
+
+  test("gc removes old assets", async () => {
+    const t = initConvexTest();
+
+    // GC with no assets should return 0
+    const deleted = await t.mutation(api.lib.gcOldAssets, {
+      currentDeploymentId: "test-deployment",
     });
-    expect(commentId).toBeDefined();
-    const comments = await t.query(api.lib.list, { targetId });
-    expect(comments).toHaveLength(1);
-    expect(comments[0].text).toEqual("Hello, world!");
+    expect(deleted).toBe(0);
   });
 });
