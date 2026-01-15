@@ -1,0 +1,180 @@
+import type { HttpRouter } from "convex/server";
+import type { ComponentApi } from "../component/_generated/component.js";
+/**
+ * Get MIME type for a file path based on its extension.
+ */
+export declare function getMimeType(path: string): string;
+/**
+ * Register HTTP routes for serving static files.
+ * This creates a catch-all route that serves files from Convex storage
+ * with SPA fallback support.
+ *
+ * @param http - The HTTP router to register routes on
+ * @param component - The component API reference
+ * @param options - Configuration options
+ * @param options.pathPrefix - URL prefix for static files (default: "/")
+ * @param options.spaFallback - Enable SPA fallback to index.html (default: true)
+ *
+ * @example
+ * ```typescript
+ * // In your convex/http.ts
+ * import { httpRouter } from "convex/server";
+ * import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+ * import { components } from "./_generated/api";
+ *
+ * const http = httpRouter();
+ *
+ * // Serve static files at root
+ * registerStaticRoutes(http, components.selfStaticHosting);
+ *
+ * // Or serve at a specific path prefix
+ * registerStaticRoutes(http, components.selfStaticHosting, {
+ *   pathPrefix: "/app",
+ * });
+ *
+ * export default http;
+ * ```
+ */
+export declare function registerStaticRoutes(http: HttpRouter, component: ComponentApi, { pathPrefix, spaFallback, }?: {
+    pathPrefix?: string;
+    spaFallback?: boolean;
+}): void;
+/**
+ * Expose the upload API as INTERNAL functions for secure deployments.
+ * These functions can only be called via `npx convex run` or from other Convex functions.
+ *
+ * @param component - The component API reference
+ *
+ * @example
+ * ```typescript
+ * // In your convex/staticHosting.ts
+ * import { exposeUploadApi } from "@get-convex/self-static-hosting";
+ * import { components } from "./_generated/api";
+ *
+ * export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
+ *   exposeUploadApi(components.selfStaticHosting);
+ * ```
+ *
+ * Then deploy using:
+ * ```bash
+ * npm run deploy:static
+ * ```
+ */
+export declare function exposeUploadApi(component: ComponentApi): {
+    /**
+     * Generate a signed URL for uploading a file.
+     * Files are stored in the app's storage (not the component's).
+     */
+    generateUploadUrl: import("convex/server").RegisteredMutation<"internal", {}, Promise<string>>;
+    /**
+     * Record an uploaded asset in the database.
+     * Automatically cleans up old storage files when replacing.
+     */
+    recordAsset: import("convex/server").RegisteredMutation<"internal", {
+        storageId: string;
+        path: string;
+        contentType: string;
+        deploymentId: string;
+    }, Promise<null>>;
+    /**
+     * Garbage collect old assets and notify clients of the new deployment.
+     * Returns the count of deleted assets.
+     * Also triggers connected clients to reload via the deployment subscription.
+     */
+    gcOldAssets: import("convex/server").RegisteredMutation<"internal", {
+        currentDeploymentId: string;
+    }, Promise<number>>;
+    /**
+     * List all static assets (for debugging).
+     */
+    listAssets: import("convex/server").RegisteredQuery<"internal", {
+        limit?: number | undefined;
+    }, Promise<{
+        _creationTime: number;
+        _id: string;
+        contentType: string;
+        deploymentId: string;
+        path: string;
+        storageId: string;
+    }[]>>;
+};
+/**
+ * Expose a query that clients can subscribe to for live reload on deploy.
+ * When a new deployment happens, subscribed clients will be notified.
+ *
+ * @param component - The component API reference
+ *
+ * @example
+ * ```typescript
+ * // In your convex/staticHosting.ts
+ * import { exposeUploadApi, exposeDeploymentQuery } from "@get-convex/self-static-hosting";
+ * import { components } from "./_generated/api";
+ *
+ * export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
+ *   exposeUploadApi(components.selfStaticHosting);
+ *
+ * export const { getCurrentDeployment } = exposeDeploymentQuery(components.selfStaticHosting);
+ * ```
+ */
+export declare function exposeDeploymentQuery(component: ComponentApi): {
+    /**
+     * Get the current deployment info.
+     * Subscribe to this query to detect when a new deployment happens.
+     */
+    getCurrentDeployment: import("convex/server").RegisteredQuery<"public", {}, Promise<{
+        _creationTime: number;
+        _id: string;
+        currentDeploymentId: string;
+        deployedAt: number;
+    } | null>>;
+};
+/**
+ * Derive the Convex cloud URL from a .convex.site hostname.
+ * Useful for client-side code that needs to connect to the Convex backend
+ * when hosted on Convex static hosting.
+ *
+ * @example
+ * ```typescript
+ * // In your React app's main.tsx
+ * import { getConvexUrl } from "@get-convex/self-static-hosting";
+ *
+ * const convexUrl = import.meta.env.VITE_CONVEX_URL ?? getConvexUrl();
+ * const convex = new ConvexReactClient(convexUrl);
+ * ```
+ */
+export declare function getConvexUrl(): string;
+/**
+ * Expose an action to purge Cloudflare cache after deployment.
+ * This is optional - only needed if you're using Cloudflare as a CDN.
+ *
+ * @example
+ * ```typescript
+ * // In your convex/staticHosting.ts
+ * import { exposeCachePurgeAction } from "@get-convex/self-static-hosting";
+ *
+ * export const { purgeCloudflareCache } = exposeCachePurgeAction();
+ * ```
+ *
+ * Then call after deployment:
+ * ```bash
+ * npx convex run staticHosting:purgeCloudflareCache \
+ *   '{"zoneId": "your-zone-id", "apiToken": "your-api-token", "purgeAll": true}'
+ * ```
+ */
+export declare function exposeCachePurgeAction(): {
+    /**
+     * Purge Cloudflare cache after a deployment.
+     * Can purge all files or specific URLs.
+     */
+    purgeCloudflareCache: import("convex/server").RegisteredAction<"internal", {
+        purgeAll?: boolean | undefined;
+        files?: string[] | undefined;
+        zoneId: string;
+        apiToken: string;
+    }, Promise<{
+        success: boolean;
+        purgedAll: boolean;
+        purgedFiles: number;
+    }>>;
+};
+//# sourceMappingURL=index.d.ts.map
