@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * CLI tool to upload static files to Convex storage.
+ * CLI tool to upload static files to Convex storage or Cloudflare Pages.
  *
  * Usage:
  *   npx @get-convex/self-static-hosting upload [options]
  *
  * Options:
- *   --dist <path>       Path to dist directory (default: ./dist)
- *   --component <name>  Convex component with upload functions (default: staticHosting)
- *   --prod              Deploy to production deployment
- *   --domain <domain>   Domain for Cloudflare cache purge (auto-detects zone ID)
- *   --help              Show help
+ *   --dist <path>            Path to dist directory (default: ./dist)
+ *   --component <name>       Convex component with upload functions (default: staticHosting)
+ *   --prod                   Deploy to production deployment
+ *   --domain <domain>        Domain for Cloudflare cache purge (auto-detects zone ID)
+ *   --cloudflare-pages       Deploy to Cloudflare Pages instead of Convex storage
+ *   --pages-project <name>   Cloudflare Pages project name (required with --cloudflare-pages)
+ *   --help                   Show help
  */
 
 import { readFileSync, readdirSync, existsSync } from "fs";
@@ -18,6 +20,7 @@ import { join, relative, extname, resolve } from "path";
 import { randomUUID } from "crypto";
 import { execSync, spawnSync } from "child_process";
 import { homedir } from "os";
+import { deployToCloudflarePages } from "./upload-cloudflare-pages.js";
 
 // MIME type mapping
 const MIME_TYPES: Record<string, string> = {
@@ -53,6 +56,8 @@ interface ParsedArgs {
   prod: boolean;
   build: boolean;
   help: boolean;
+  cloudflarePages: boolean;
+  pagesProject: string | null;
 }
 
 function parseArgs(args: string[]): ParsedArgs {
@@ -63,6 +68,8 @@ function parseArgs(args: string[]): ParsedArgs {
     prod: false, // Default to dev, use --prod for production
     build: false,
     help: false,
+    cloudflarePages: false,
+    pagesProject: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -81,7 +88,16 @@ function parseArgs(args: string[]): ParsedArgs {
       result.prod = false;
     } else if (arg === "--build" || arg === "-b") {
       result.build = true;
+    } else if (arg === "--cloudflare-pages") {
+      result.cloudflarePages = true;
+    } else if (arg === "--pages-project") {
+      result.pagesProject = args[++i] || null;
     }
+  }
+
+  // Also check environment variable for pages project
+  if (!result.pagesProject && process.env.CLOUDFLARE_PAGES_PROJECT) {
+    result.pagesProject = process.env.CLOUDFLARE_PAGES_PROJECT;
   }
 
   return result;
@@ -91,17 +107,29 @@ function showHelp(): void {
   console.log(`
 Usage: npx @get-convex/self-static-hosting upload [options]
 
-Upload static files from a dist directory to Convex storage.
+Upload static files from a dist directory to Convex storage or Cloudflare Pages.
 
 Options:
-  -d, --dist <path>        Path to dist directory (default: ./dist)
-  -c, --component <name>   Convex component with upload functions (default: staticHosting)
-      --prod               Deploy to production deployment
-  -b, --build              Run 'npm run build' with correct VITE_CONVEX_URL before uploading
-      --domain <name>      Domain for Cloudflare cache purge (e.g., example.com)
-  -h, --help               Show this help message
+  -d, --dist <path>           Path to dist directory (default: ./dist)
+  -c, --component <name>      Convex component with upload functions (default: staticHosting)
+      --prod                  Deploy to production deployment
+  -b, --build                 Run 'npm run build' with correct VITE_CONVEX_URL before uploading
+      --domain <name>         Domain for Cloudflare cache purge (e.g., example.com)
+  -h, --help                  Show this help message
 
-Cloudflare Cache Purging:
+Cloudflare Pages (alternative to Convex storage):
+      --cloudflare-pages      Deploy to Cloudflare Pages instead of Convex storage
+      --pages-project <name>  Cloudflare Pages project name (auto-created if needed)
+                              Can also be set via CLOUDFLARE_PAGES_PROJECT env var
+
+  Cloudflare Pages serves files directly from edge, eliminating the need for
+  Convex storage for static assets. Your Convex backend is still used for
+  API routes and live reload notifications.
+
+  Example:
+    npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages --pages-project my-app
+
+Cloudflare Cache Purging (for Convex storage mode):
   The CLI will automatically purge Cloudflare cache if credentials are available.
   
   Option 1: Use --domain flag (auto-detects zone ID)
@@ -115,9 +143,14 @@ Cloudflare Cache Purging:
     npx @get-convex/self-static-hosting upload
 
 Examples:
+  # Upload to Convex storage (default)
   npx @get-convex/self-static-hosting upload
   npx @get-convex/self-static-hosting upload --dist ./build
   npx @get-convex/self-static-hosting upload --domain mysite.com
+
+  # Upload to Cloudflare Pages
+  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project my-app
+  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages --pages-project my-app
 `);
 }
 
@@ -354,6 +387,42 @@ async function main(): Promise<void> {
 
   const distDir = resolve(args.dist);
   const componentName = args.component;
+
+  // Handle Cloudflare Pages deployment
+  if (args.cloudflarePages) {
+    if (!args.pagesProject) {
+      console.error("Error: --pages-project is required when using --cloudflare-pages");
+      console.error("");
+      console.error("Usage:");
+      console.error("  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project my-app");
+      console.error("");
+      console.error("Or set the CLOUDFLARE_PAGES_PROJECT environment variable:");
+      console.error("  export CLOUDFLARE_PAGES_PROJECT=my-app");
+      process.exit(1);
+    }
+
+    const result = await deployToCloudflarePages({
+      distDir,
+      projectName: args.pagesProject,
+      convexComponent: componentName,
+      prod: useProd,
+    });
+
+    if (!result.success) {
+      console.error(`❌ ${result.error}`);
+      process.exit(1);
+    }
+
+    console.log("");
+    console.log("✨ Cloudflare Pages deployment complete!");
+    if (result.url) {
+      console.log("");
+      console.log(`Your app is now available at: ${result.url}`);
+    }
+    return;
+  }
+
+  // Continue with Convex storage deployment...
 
   if (!existsSync(distDir)) {
     console.error(`Error: dist directory not found: ${distDir}`);

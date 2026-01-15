@@ -491,6 +491,249 @@ CLOUDFLARE_DOMAIN=${domain}
   }
 }
 
+/**
+ * Save Cloudflare Pages project to .env.local
+ */
+function savePagesProjectToEnv(projectName: string): void {
+  const envFile = ".env.local";
+  const newVar = `CLOUDFLARE_PAGES_PROJECT=${projectName}`;
+
+  if (existsSync(envFile)) {
+    const content = readFileSync(envFile, "utf-8");
+    if (content.includes("CLOUDFLARE_PAGES_PROJECT")) {
+      // Replace existing
+      const updated = content.replace(
+        /CLOUDFLARE_PAGES_PROJECT=.*/g,
+        newVar,
+      );
+      writeFileSync(envFile, updated);
+    } else {
+      appendFileSync(envFile, `\n# Cloudflare Pages Project\n${newVar}\n`);
+    }
+  } else {
+    writeFileSync(envFile, `# Cloudflare Pages Project\n${newVar}\n`);
+  }
+}
+
+/**
+ * Check if a Cloudflare Pages project exists
+ */
+async function pagesProjectExists(
+  accountId: string,
+  projectName: string,
+  token: string,
+): Promise<boolean> {
+  const data = await cfApi(
+    `/accounts/${accountId}/pages/projects/${projectName}`,
+    token,
+  );
+  return data.success;
+}
+
+/**
+ * Create a Cloudflare Pages project
+ */
+async function createPagesProject(
+  accountId: string,
+  projectName: string,
+  token: string,
+): Promise<boolean> {
+  const data = await cfApi(`/accounts/${accountId}/pages/projects`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      name: projectName,
+      production_branch: "main",
+    }),
+  });
+  return data.success;
+}
+
+/**
+ * Add a custom domain to a Cloudflare Pages project
+ */
+async function addPagesCustomDomain(
+  accountId: string,
+  projectName: string,
+  domain: string,
+  token: string,
+): Promise<boolean> {
+  const data = await cfApi(
+    `/accounts/${accountId}/pages/projects/${projectName}/domains`,
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({ name: domain }),
+    },
+  );
+  return data.success;
+}
+
+/**
+ * Run the Cloudflare Pages setup flow
+ */
+async function runPagesSetup(token: string): Promise<void> {
+  log("");
+  log("═══════════════════════════════════════════════════════════");
+  log("  Cloudflare Pages Setup");
+  log("═══════════════════════════════════════════════════════════");
+  log("");
+  log("Cloudflare Pages serves your static files directly from edge,");
+  log("without needing Convex storage for assets.");
+  log("");
+
+  // Get account ID
+  const accountId = await getAccountId(token);
+  if (!accountId) {
+    error("Could not get Cloudflare account ID.");
+    log("Your API token may not have account-level permissions.");
+    log("");
+    log("Create an API token with 'Cloudflare Pages: Edit' permission at:");
+    log("  https://dash.cloudflare.com/profile/api-tokens");
+    rl.close();
+    process.exit(1);
+  }
+
+  // Get or create project name
+  log("Step 1: Setting up Pages project...");
+  log("");
+  
+  let projectName = await prompt("Enter a project name (e.g., my-app): ");
+  if (!projectName) {
+    projectName = "convex-app";
+  }
+  
+  // Sanitize project name (lowercase, alphanumeric and hyphens only)
+  projectName = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  // Check if project exists
+  const exists = await pagesProjectExists(accountId, projectName, token);
+  if (exists) {
+    success(`Project "${projectName}" already exists`);
+  } else {
+    log(`Creating project "${projectName}"...`);
+    const created = await createPagesProject(accountId, projectName, token);
+    if (created) {
+      success(`Created project: ${projectName}`);
+    } else {
+      warn("Could not create project automatically.");
+      log("");
+      log("Please create it manually:");
+      log("  1. Go to https://dash.cloudflare.com → Workers & Pages");
+      log("  2. Click 'Create' → 'Pages' → 'Upload assets'");
+      log(`  3. Name it: ${projectName}`);
+      log("");
+      await prompt("Press Enter when done...");
+    }
+  }
+
+  // Ask about custom domain
+  log("");
+  log("Step 2: Custom domain (optional)...");
+  log("");
+  const wantCustomDomain = await promptYesNo(
+    "Do you want to add a custom domain to your Pages project?",
+    false,
+  );
+
+  let customDomain: string | null = null;
+  if (wantCustomDomain) {
+    customDomain = await prompt("Enter your custom domain (e.g., app.example.com): ");
+    if (customDomain) {
+      log(`Adding custom domain: ${customDomain}...`);
+      const added = await addPagesCustomDomain(
+        accountId,
+        projectName,
+        customDomain,
+        token,
+      );
+      if (added) {
+        success(`Custom domain added: ${customDomain}`);
+        log("");
+        info("You'll need to verify DNS ownership in Cloudflare dashboard.");
+        log("  Go to: Workers & Pages → your project → Custom domains");
+      } else {
+        warn("Could not add custom domain automatically.");
+        log("");
+        log("Add it manually in the Cloudflare dashboard:");
+        log("  Workers & Pages → your project → Custom domains → Add");
+      }
+    }
+  }
+
+  // Save to .env.local
+  log("");
+  log("Step 3: Saving configuration...");
+  savePagesProjectToEnv(projectName);
+  success("Saved CLOUDFLARE_PAGES_PROJECT to .env.local");
+
+  // Offer to deploy
+  log("");
+  log("Step 4: Deploy static files...");
+  log("");
+  const shouldDeploy = await promptYesNo(
+    "Would you like to build and deploy static files now?",
+  );
+
+  if (shouldDeploy) {
+    log("");
+    log("Building app...");
+    const buildResult = spawnSync("npm", ["run", "build"], { stdio: "inherit" });
+
+    if (buildResult.status === 0) {
+      log("");
+      log("Deploying to Cloudflare Pages...");
+      const deployResult = spawnSync(
+        "npx",
+        [
+          "@get-convex/self-static-hosting",
+          "upload",
+          "--cloudflare-pages",
+          "--pages-project",
+          projectName,
+          "--prod",
+        ],
+        { stdio: "inherit" },
+      );
+
+      if (deployResult.status === 0) {
+        success("Deployment complete!");
+      } else {
+        warn("Deployment failed. Try running manually:");
+        log(`  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project ${projectName} --prod`);
+      }
+    } else {
+      warn("Build failed. Please fix any errors and run:");
+      log(`  npm run build`);
+      log(`  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project ${projectName} --prod`);
+    }
+  }
+
+  // Done!
+  log("");
+  log("═══════════════════════════════════════════════════════════");
+  success("Cloudflare Pages setup complete!");
+  log("");
+  log("Your configuration:");
+  log(`  Project: ${projectName}`);
+  log(`  URL: https://${projectName}.pages.dev`);
+  if (customDomain) {
+    log(`  Custom domain: https://${customDomain} (pending verification)`);
+  }
+  log("");
+  log("To deploy in the future, run:");
+  log(`  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages`);
+  log("");
+  log("Or add to package.json:");
+  log(`  "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages"`);
+  log("");
+
+  rl.close();
+}
+
 async function main(): Promise<void> {
   log("");
   log("☁️  Cloudflare Setup Wizard");
@@ -555,9 +798,39 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 3: Get Convex PRODUCTION site URL
+  // Step 3: Choose hosting mode
   log("");
-  log("Step 3: Getting your Convex PRODUCTION deployment URL...");
+  log("Step 3: Choose hosting mode...");
+  log("");
+  log("How would you like to host your static files?");
+  log("");
+  log("  1. Cloudflare Pages (recommended)");
+  log("     - Files served directly from Cloudflare edge");
+  log("     - No Convex storage costs for static assets");
+  log("     - Built-in SPA routing support");
+  log("");
+  log("  2. Convex Storage + Cloudflare CDN");
+  log("     - Files stored in Convex, cached by Cloudflare");
+  log("     - Requires Worker proxy for Host header rewriting");
+  log("     - Good if you want everything in Convex");
+  log("");
+
+  const modeChoice = await prompt("Select mode [1-2] (default: 1): ");
+  const usePages = modeChoice !== "2";
+
+  if (usePages) {
+    // Run Pages setup flow
+    await runPagesSetup(token);
+    return;
+  }
+
+  // Continue with Worker proxy setup (original flow)
+  log("");
+  log("Setting up Convex Storage + Cloudflare CDN...");
+
+  // Step 4: Get Convex PRODUCTION site URL
+  log("");
+  log("Step 4: Getting your Convex PRODUCTION deployment URL...");
 
   // First try to get it automatically from convex CLI
   let convexSiteUrl = getConvexProdUrl();
@@ -611,9 +884,9 @@ async function main(): Promise<void> {
     .split("/")[0];
   success(`Production Convex site: ${convexHostname}`);
 
-  // Step 4: Select or add domain
+  // Step 5: Select or add domain
   log("");
-  log("Step 4: Selecting your domain...");
+  log("Step 5: Selecting your domain...");
 
   const zones = await listZones(token);
   let selectedZone: { id: string; name: string } | null = null;
@@ -664,9 +937,9 @@ async function main(): Promise<void> {
 
   success(`Selected domain: ${selectedZone.name}`);
 
-  // Step 5: Configure DNS
+  // Step 6: Configure DNS
   log("");
-  log("Step 5: Configuring DNS...");
+  log("Step 6: Configuring DNS...");
 
   const useSubdomain = await promptYesNo(
     `Use a subdomain (e.g., app.${selectedZone.name})? Otherwise will use root domain (${selectedZone.name}).`,
@@ -752,9 +1025,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 6: Deploy Cloudflare Worker for Host header rewriting
+  // Step 7: Deploy Cloudflare Worker for Host header rewriting
   log("");
-  log("Step 6: Deploying Cloudflare Worker...");
+  log("Step 7: Deploying Cloudflare Worker...");
   info("This is required because Convex validates the Host header.");
   log("");
 
@@ -828,9 +1101,9 @@ async function main(): Promise<void> {
     log(`   (in Workers & Pages → your worker → Settings → Triggers → Routes)`);
   }
 
-  // Step 7: Check and set SSL mode
+  // Step 8: Check and set SSL mode
   log("");
-  log("Step 7: Checking SSL/TLS mode...");
+  log("Step 8: Checking SSL/TLS mode...");
 
   const currentSslMode = await getSslMode(activeToken, selectedZone.id);
 
@@ -867,9 +1140,9 @@ async function main(): Promise<void> {
     log("Set encryption mode to \"Full\" or \"Full (strict)\"");
   }
 
-  // Step 8: Get API token for cache purging
+  // Step 9: Get API token for cache purging
   log("");
-  log("Step 8: Setting up cache purge token...");
+  log("Step 9: Setting up cache purge token...");
 
   let finalApiToken: string;
 
@@ -906,16 +1179,16 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 9: Save to .env.local
+  // Step 10: Save to .env.local
   log("");
-  log("Step 9: Saving configuration...");
+  log("Step 10: Saving configuration...");
 
   saveToEnv(selectedZone.id, finalApiToken, fullDomain);
   success("Credentials saved to .env.local");
 
-  // Step 10: Check production deployment and offer to deploy
+  // Step 11: Check production deployment and offer to deploy
   log("");
-  log("Step 10: Checking production deployment...");
+  log("Step 11: Checking production deployment...");
 
   // Check if Convex backend is deployed to production
   const hasProdDeployment = getConvexProdUrl() !== null;
@@ -939,9 +1212,9 @@ async function main(): Promise<void> {
     success("Convex production deployment found");
   }
 
-  // Step 11: Check if static files have been deployed
+  // Step 12: Check if static files have been deployed
   log("");
-  log("Step 11: Checking static files deployment...");
+  log("Step 12: Checking static files deployment...");
 
   const hasStaticFiles = hasStaticDeployment();
 

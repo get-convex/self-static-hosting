@@ -3,7 +3,8 @@
  * CLI for Convex Self Static Hosting
  *
  * Commands:
- *   upload              Upload static files to Convex
+ *   deploy              One-shot deployment (Convex backend + static files)
+ *   upload              Upload static files to Convex or Cloudflare Pages
  *   setup-cloudflare    Interactive Cloudflare CDN setup
  *   init                Print setup instructions
  */
@@ -12,6 +13,12 @@ const command = process.argv[2];
 
 async function main() {
   switch (command) {
+    case "deploy":
+      // Pass remaining args to deploy command
+      process.argv.splice(2, 1);
+      await import("./deploy.js");
+      break;
+
     case "upload":
       // Pass remaining args to upload command
       process.argv.splice(2, 1);
@@ -50,15 +57,23 @@ Usage:
   npx @get-convex/self-static-hosting <command> [options]
 
 Commands:
-  upload              Upload static files to Convex storage
-  setup-cloudflare    Interactive Cloudflare CDN setup wizard
+  deploy              One-shot deployment (Convex backend + static files)
+  upload              Upload static files to Convex storage or Cloudflare Pages
+  setup-cloudflare    Interactive Cloudflare setup wizard
   init                Print setup instructions for integration
 
 Examples:
-  npx @get-convex/self-static-hosting upload
-  npx @get-convex/self-static-hosting upload --dist ./build
+  # One-shot deployment to Cloudflare Pages
+  npx @get-convex/self-static-hosting deploy --cloudflare-pages --pages-project my-app
+
+  # One-shot deployment to Convex storage
+  npx @get-convex/self-static-hosting deploy
+
+  # Upload only (no Convex backend deploy)
+  npx @get-convex/self-static-hosting upload --build --prod
+
+  # Interactive Cloudflare setup
   npx @get-convex/self-static-hosting setup-cloudflare
-  npx @get-convex/self-static-hosting init
 
 Run '<command> --help' for more information on a specific command.
 `);
@@ -87,7 +102,7 @@ app.use(selfStaticHosting);
 export default app;
 \`\`\`
 
-## 3. Create HTTP routes
+## 3. Create HTTP routes (only needed for Convex storage mode)
 
 \`\`\`typescript
 // convex/http.ts
@@ -97,7 +112,7 @@ import { components } from "./_generated/api";
 
 const http = httpRouter();
 
-// Serve static files (use pathPrefix for CDN setups)
+// Serve static files (skip this if using Cloudflare Pages)
 registerStaticRoutes(http, components.selfStaticHosting, {
   pathPrefix: "/",  // or "/app" to keep API routes separate
   spaFallback: true,
@@ -113,11 +128,11 @@ export default http;
 import { exposeUploadApi, exposeDeploymentQuery } from "@get-convex/self-static-hosting";
 import { components } from "./_generated/api";
 
-// Internal functions for secure uploads
+// Internal functions for secure uploads (needed for Convex storage mode)
 export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
   exposeUploadApi(components.selfStaticHosting);
 
-// Optional: Live reload notifications
+// Optional: Live reload notifications (works with both modes)
 export const { getCurrentDeployment } =
   exposeDeploymentQuery(components.selfStaticHosting);
 \`\`\`
@@ -128,7 +143,17 @@ export const { getCurrentDeployment } =
 {
   "scripts": {
     "build": "vite build",
-    "deploy:static": "npm run build && npx @get-convex/self-static-hosting upload"
+    "deploy": "npx @get-convex/self-static-hosting deploy --cloudflare-pages --pages-project my-app"
+  }
+}
+\`\`\`
+
+Or for Convex storage mode:
+
+\`\`\`json
+{
+  "scripts": {
+    "deploy": "npx @get-convex/self-static-hosting deploy"
   }
 }
 \`\`\`
@@ -136,23 +161,32 @@ export const { getCurrentDeployment } =
 ## 6. Deploy
 
 \`\`\`bash
-npm run deploy:static
+# Login first
+npx convex login
+npx wrangler login  # if using Cloudflare Pages
+
+# One-shot deployment (backend + static files)
+npm run deploy
 \`\`\`
 
-## Optional: Cloudflare CDN Setup
+## Cloudflare Setup (Recommended)
 
 \`\`\`bash
 npx @get-convex/self-static-hosting setup-cloudflare
 \`\`\`
 
-This interactive wizard will:
-- Login to Cloudflare
-- Help you select or add a domain
-- Configure DNS pointing to your Convex site
-- Create an API token for cache purging
-- Save credentials to .env.local
+This interactive wizard will help you choose between:
 
-Then just deploy - cache is purged automatically!
+1. **Cloudflare Pages** (recommended)
+   - Files served directly from Cloudflare edge
+   - No Convex storage costs for static assets
+   - Built-in SPA routing
+
+2. **Convex Storage + Cloudflare CDN**
+   - Files stored in Convex, cached by Cloudflare
+   - Good if you want everything in Convex
+
+The wizard handles all configuration and saves credentials to .env.local.
 `);
 }
 
