@@ -8,6 +8,7 @@
  * Options:
  *   --dist <path>       Path to dist directory (default: ./dist)
  *   --component <name>  Convex component with upload functions (default: staticHosting)
+ *   --prod              Deploy to production deployment
  *   --domain <domain>   Domain for Cloudflare cache purge (auto-detects zone ID)
  *   --help              Show help
  */
@@ -15,7 +16,7 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join, relative, extname, resolve } from "path";
 import { randomUUID } from "crypto";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { homedir } from "os";
 
 // MIME type mapping
@@ -49,6 +50,8 @@ interface ParsedArgs {
   dist: string;
   component: string;
   domain: string | null;
+  prod: boolean;
+  build: boolean;
   help: boolean;
 }
 
@@ -57,6 +60,8 @@ function parseArgs(args: string[]): ParsedArgs {
     dist: "./dist",
     component: "staticHosting",
     domain: null,
+    prod: false, // Default to dev, use --prod for production
+    build: false,
     help: false,
   };
 
@@ -70,6 +75,12 @@ function parseArgs(args: string[]): ParsedArgs {
       result.component = args[++i] || result.component;
     } else if (arg === "--domain") {
       result.domain = args[++i] || null;
+    } else if (arg === "--prod") {
+      result.prod = true;
+    } else if (arg === "--no-prod" || arg === "--dev") {
+      result.prod = false;
+    } else if (arg === "--build" || arg === "-b") {
+      result.build = true;
     }
   }
 
@@ -85,6 +96,8 @@ Upload static files from a dist directory to Convex storage.
 Options:
   -d, --dist <path>        Path to dist directory (default: ./dist)
   -c, --component <name>   Convex component with upload functions (default: staticHosting)
+      --prod               Deploy to production deployment
+  -b, --build              Run 'npm run build' with correct VITE_CONVEX_URL before uploading
       --domain <name>      Domain for Cloudflare cache purge (e.g., example.com)
   -h, --help               Show this help message
 
@@ -108,12 +121,16 @@ Examples:
 `);
 }
 
+// Global flag for production mode
+let useProd = true;
+
 function convexRun(
   functionPath: string,
   args: Record<string, unknown> = {},
 ): string {
   const argsJson = JSON.stringify(args);
-  const cmd = `npx convex run "${functionPath}" '${argsJson}' --typecheck=disable --codegen=disable`;
+  const prodFlag = useProd ? "--prod" : "";
+  const cmd = `npx convex run "${functionPath}" '${argsJson}' ${prodFlag} --typecheck=disable --codegen=disable`;
   try {
     const result = execSync(cmd, {
       encoding: "utf-8",
@@ -276,18 +293,77 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Set global prod flag
+  useProd = args.prod;
+
+  // Run build if requested
+  if (args.build) {
+    let convexUrl: string | null = null;
+
+    if (useProd) {
+      // Get production URL from convex dashboard
+      try {
+        const result = execSync("npx convex dashboard --prod --no-open", {
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
+        if (match) {
+          convexUrl = `https://${match[1]}.convex.cloud`;
+        }
+      } catch {
+        console.error("Could not get production Convex URL.");
+        console.error("Make sure you have deployed to production: npx convex deploy");
+        process.exit(1);
+      }
+    } else {
+      // Get dev URL from .env.local
+      if (existsSync(".env.local")) {
+        const envContent = readFileSync(".env.local", "utf-8");
+        const match = envContent.match(/(?:VITE_)?CONVEX_URL=(.+)/);
+        if (match) {
+          convexUrl = match[1].trim();
+        }
+      }
+    }
+
+    if (!convexUrl) {
+      console.error("Could not determine Convex URL for build.");
+      process.exit(1);
+    }
+
+    const envLabel = useProd ? "production" : "development";
+    console.log(`🔨 Building for ${envLabel}...`);
+    console.log(`   VITE_CONVEX_URL=${convexUrl}`);
+    console.log("");
+
+    const buildResult = spawnSync("npm", ["run", "build"], {
+      stdio: "inherit",
+      env: { ...process.env, VITE_CONVEX_URL: convexUrl },
+    });
+
+    if (buildResult.status !== 0) {
+      console.error("Build failed.");
+      process.exit(1);
+    }
+
+    console.log("");
+  }
+
   const distDir = resolve(args.dist);
   const componentName = args.component;
 
   if (!existsSync(distDir)) {
     console.error(`Error: dist directory not found: ${distDir}`);
-    console.error("Run your build command first (e.g., 'npm run build')");
+    console.error("Run your build command first (e.g., 'npm run build' or add --build flag)");
     process.exit(1);
   }
 
   const deploymentId = randomUUID();
   const files = collectFiles(distDir, distDir);
 
+  const envLabel = useProd ? "production" : "development";
+  console.log(`🚀 Deploying to ${envLabel} environment`);
   console.log("🔒 Using secure internal functions (requires Convex CLI auth)");
   console.log(
     `Uploading ${files.length} files with deployment ID: ${deploymentId}`,
@@ -389,17 +465,40 @@ async function main(): Promise<void> {
   console.log("");
   console.log("✨ Upload complete!");
 
-  // Try to show the deployment URL
-  if (existsSync(".env.local")) {
-    const envContent = readFileSync(".env.local", "utf-8");
-    const match = envContent.match(/(?:VITE_)?CONVEX_URL=(.+)/);
-    if (match) {
-      const convexUrl = match[1].trim();
-      console.log("");
-      console.log(
-        `Your app is now available at: ${convexUrl.replace(".convex.cloud", ".convex.site")}`,
-      );
+  // Show the deployment URL
+  let siteUrl: string | null = null;
+
+  // If custom domain was provided, use that
+  if (args.domain) {
+    siteUrl = `https://${args.domain}`;
+  } else if (useProd) {
+    // For production without custom domain, get URL from convex dashboard --prod
+    try {
+      const result = execSync("npx convex dashboard --prod --no-open", {
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+      const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
+      if (match) {
+        siteUrl = `https://${match[1]}.convex.site`;
+      }
+    } catch {
+      // Ignore errors
     }
+  } else {
+    // Dev environment - use .env.local
+    if (existsSync(".env.local")) {
+      const envContent = readFileSync(".env.local", "utf-8");
+      const match = envContent.match(/(?:VITE_)?CONVEX_URL=(.+)/);
+      if (match) {
+        siteUrl = match[1].trim().replace(".convex.cloud", ".convex.site");
+      }
+    }
+  }
+
+  if (siteUrl) {
+    console.log("");
+    console.log(`Your app is now available at: ${siteUrl}`);
   }
 
   if (!cachePurged && !args.domain) {

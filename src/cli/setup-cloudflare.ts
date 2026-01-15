@@ -79,10 +79,57 @@ function commandExists(cmd: string): boolean {
 }
 
 /**
- * Get the Convex site URL from .env.local
+ * Get the Convex production site URL by running convex dashboard --prod
  */
-function getConvexSiteUrl(): string | null {
-  const envFiles = [".env.local", ".env"];
+function getConvexProdUrl(): string | null {
+  try {
+    const result = execSync("npx convex dashboard --prod --no-open", {
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
+    // Output: "Opening https://dashboard.convex.dev/d/deployment-name in the default browser..."
+    const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
+    if (match) {
+      return `https://${match[1]}.convex.site`;
+    }
+  } catch {
+    // Command failed, fall back to env files
+  }
+  return null;
+}
+
+/**
+ * Check if static files have been deployed to production
+ * by querying the component's getCurrentDeployment function
+ */
+function hasStaticDeployment(componentName: string = "staticHosting"): boolean {
+  try {
+    const result = execSync(
+      `npx convex run ${componentName}:getCurrentDeployment --prod`,
+      {
+        stdio: "pipe",
+        encoding: "utf-8",
+      },
+    );
+    // If it returns null or empty, no deployment
+    const trimmed = result.trim();
+    return trimmed !== "null" && trimmed !== "" && trimmed !== "undefined";
+  } catch {
+    // Function doesn't exist or failed - no deployment
+    return false;
+  }
+}
+
+/**
+ * Get the Convex site URL from environment files
+ * Prioritizes production env files over dev
+ */
+function getConvexSiteUrl(preferProd: boolean = true): string | null {
+  // Check production files first if preferProd is true
+  const envFiles = preferProd
+    ? [".env.production", ".env.production.local", ".env.local", ".env"]
+    : [".env.local", ".env", ".env.production", ".env.production.local"];
+
   for (const envFile of envFiles) {
     if (existsSync(envFile)) {
       const content = readFileSync(envFile, "utf-8");
@@ -100,7 +147,10 @@ function getConvexSiteUrl(): string | null {
  */
 function isWranglerLoggedIn(): boolean {
   try {
-    const result = execSync("npx wrangler whoami", { stdio: "pipe", encoding: "utf-8" });
+    const result = execSync("npx wrangler whoami", {
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
     // If the command succeeds and doesn't contain "not authenticated", we're logged in
     return !result.toLowerCase().includes("not authenticated");
   } catch {
@@ -112,18 +162,30 @@ function isWranglerLoggedIn(): boolean {
  * Get API token from wrangler config (checks multiple locations/formats)
  */
 function getWranglerToken(): string | null {
-  // Try the new config location first (wrangler 3.x+)
+  // Check multiple config locations (varies by OS and wrangler version)
   const configPaths = [
+    // macOS (wrangler 4.x)
+    join(
+      homedir(),
+      "Library",
+      "Preferences",
+      ".wrangler",
+      "config",
+      "default.toml",
+    ),
+    // Linux/older versions
     join(homedir(), ".wrangler", "config", "default.toml"),
     join(homedir(), ".wrangler", "config.toml"),
+    // XDG config on Linux
+    join(homedir(), ".config", ".wrangler", "config", "default.toml"),
   ];
-  
+
   const tokenPatterns = [
     /oauth_token\s*=\s*"([^"]+)"/,
     /access_token\s*=\s*"([^"]+)"/,
     /token\s*=\s*"([^"]+)"/,
   ];
-  
+
   for (const configPath of configPaths) {
     if (existsSync(configPath)) {
       const content = readFileSync(configPath, "utf-8");
@@ -263,6 +325,143 @@ async function createApiToken(
 }
 
 /**
+ * Get the current SSL/TLS mode for a zone
+ */
+async function getSslMode(
+  token: string,
+  zoneId: string,
+): Promise<string | null> {
+  const data = await cfApi(`/zones/${zoneId}/settings/ssl`, token);
+  if (data.success && data.result) {
+    return (data.result as { value: string }).value;
+  }
+  return null;
+}
+
+/**
+ * Set SSL/TLS mode for a zone
+ */
+async function setSslMode(
+  token: string,
+  zoneId: string,
+  mode: string,
+): Promise<boolean> {
+  const data = await cfApi(`/zones/${zoneId}/settings/ssl`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ value: mode }),
+  });
+  return data.success;
+}
+
+/**
+ * Get account ID from token
+ */
+async function getAccountId(token: string): Promise<string | null> {
+  const accountData = await cfApi("/accounts?per_page=1", token);
+  if (
+    accountData.success &&
+    Array.isArray(accountData.result) &&
+    accountData.result.length > 0
+  ) {
+    return (accountData.result[0] as { id: string }).id;
+  }
+  return null;
+}
+
+/**
+ * Deploy a Cloudflare Worker to proxy requests with correct Host header
+ */
+async function deployProxyWorker(
+  token: string,
+  accountId: string,
+  zoneId: string,
+  domain: string,
+  convexDeployment: string,
+): Promise<boolean> {
+  const workerName = `convex-proxy-${domain.replace(/\./g, "-")}`;
+  const convexSite = `${convexDeployment}.convex.site`;
+
+  // Worker script that rewrites Host header
+  const workerScript = `
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const convexUrl = new URL(url.pathname + url.search, "https://${convexSite}");
+    
+    const headers = new Headers(request.headers);
+    headers.set("Host", "${convexSite}");
+    
+    const modifiedRequest = new Request(convexUrl.toString(), {
+      method: request.method,
+      headers: headers,
+      body: request.body,
+    });
+    
+    return fetch(modifiedRequest);
+  },
+};
+`.trim();
+
+  // Create/update the worker script
+  const scriptData = await cfApi(
+    `/accounts/${accountId}/workers/scripts/${workerName}`,
+    token,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/javascript",
+      },
+      body: workerScript,
+    },
+  );
+
+  if (!scriptData.success) {
+    return false;
+  }
+
+  // Create a route for the worker
+  // First, check if route already exists
+  const existingRoutes = await cfApi(
+    `/zones/${zoneId}/workers/routes`,
+    token,
+  );
+
+  const routePattern = `${domain}/*`;
+  let routeExists = false;
+
+  if (existingRoutes.success && Array.isArray(existingRoutes.result)) {
+    for (const route of existingRoutes.result as Array<{
+      id: string;
+      pattern: string;
+      script: string;
+    }>) {
+      if (route.pattern === routePattern) {
+        // Update existing route
+        await cfApi(`/zones/${zoneId}/workers/routes/${route.id}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ pattern: routePattern, script: workerName }),
+        });
+        routeExists = true;
+        break;
+      }
+    }
+  }
+
+  if (!routeExists) {
+    // Create new route
+    const routeData = await cfApi(`/zones/${zoneId}/workers/routes`, token, {
+      method: "POST",
+      body: JSON.stringify({ pattern: routePattern, script: workerName }),
+    });
+    if (!routeData.success) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Save credentials to .env.local
  */
 function saveToEnv(zoneId: string, apiToken: string, domain: string): void {
@@ -314,7 +513,9 @@ async function main(): Promise<void> {
     info("Not logged in to Cloudflare.");
     const shouldLogin = await promptYesNo("Would you like to login now?");
     if (!shouldLogin) {
-      log("Run 'npx wrangler login' when you're ready, then run this command again.");
+      log(
+        "Run 'npx wrangler login' when you're ready, then run this command again.",
+      );
       rl.close();
       process.exit(0);
     }
@@ -342,7 +543,9 @@ async function main(): Promise<void> {
     log("Please create an API token manually:");
     log("  1. Go to https://dash.cloudflare.com/profile/api-tokens");
     log("  2. Click 'Create Token'");
-    log("  3. Use 'Edit zone DNS' template (or custom with Zone:Read, DNS:Edit, Cache Purge)");
+    log(
+      "  3. Use 'Edit zone DNS' template (or custom with Zone:Read, DNS:Edit, Cache Purge)",
+    );
     log("");
     token = await prompt("Paste your API token here: ");
     if (!token) {
@@ -352,24 +555,53 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 3: Get Convex site URL
+  // Step 3: Get Convex PRODUCTION site URL
   log("");
-  log("Step 3: Getting your Convex deployment URL...");
+  log("Step 3: Getting your Convex PRODUCTION deployment URL...");
 
-  let convexSiteUrl = getConvexSiteUrl();
+  // First try to get it automatically from convex CLI
+  let convexSiteUrl = getConvexProdUrl();
+
+  if (convexSiteUrl) {
+    const convexHostnamePreview = convexSiteUrl
+      .replace("https://", "")
+      .replace("http://", "")
+      .split("/")[0];
+    success(`Found production deployment: ${convexHostnamePreview}`);
+  } else {
+    // Fall back to env files
+    convexSiteUrl = getConvexSiteUrl(true);
+    if (convexSiteUrl) {
+      const convexHostnamePreview = convexSiteUrl
+        .replace("https://", "")
+        .replace("http://", "")
+        .split("/")[0];
+      log(`Found in env files: ${convexHostnamePreview}`);
+      warn("This may be a development URL.");
+      const useFound = await promptYesNo("Is this your PRODUCTION deployment?");
+      if (!useFound) {
+        convexSiteUrl = null;
+      }
+    }
+  }
+
   if (!convexSiteUrl) {
-    warn("Could not find CONVEX_URL in .env.local");
-    const manualUrl = await prompt(
-      "Enter your Convex site URL (e.g., happy-animal-123.convex.site): ",
-    );
+    log("");
+    log("Enter your production Convex site URL.");
+    log("  Format: https://your-deployment.convex.site");
+    log("  (Run 'npx convex dashboard --prod' to find it)");
+    log("");
+    const manualUrl = await prompt("Production Convex URL: ");
     if (!manualUrl) {
-      error("Convex URL is required. Run 'npx convex dev' first to set up your project.");
+      error(
+        "Convex URL is required. Run 'npx convex deploy' first to deploy to production.",
+      );
       rl.close();
       process.exit(1);
     }
     convexSiteUrl = manualUrl.includes(".convex.site")
       ? manualUrl
-      : `${manualUrl}.convex.site`;
+      : manualUrl.replace(".convex.cloud", ".convex.site");
   }
 
   // Extract just the hostname
@@ -377,7 +609,7 @@ async function main(): Promise<void> {
     .replace("https://", "")
     .replace("http://", "")
     .split("/")[0];
-  success(`Convex site: ${convexHostname}`);
+  success(`Production Convex site: ${convexHostname}`);
 
   // Step 4: Select or add domain
   log("");
@@ -407,16 +639,16 @@ async function main(): Promise<void> {
     log("");
     log("To add a new domain to Cloudflare:");
     log("  1. Go to https://dash.cloudflare.com/");
-    log("  2. Click 'Add a Site'");
+    log("  2. Click 'Onboard a domain' (or 'Buy a domain')");
     log("  3. Enter your domain and follow the setup wizard");
     log("  4. Update your domain's nameservers to Cloudflare's");
     log("  5. Run this command again once the domain is active");
     log("");
-    const domainName = await prompt(
-      "Or enter a domain you've already added: ",
-    );
+    const domainName = await prompt("Or enter a domain you've already added: ");
     if (domainName) {
-      const matchingZone = zones.find((z) => z.name === domainName);
+      const matchingZone = zones.find(
+        (z) => z.name.toLowerCase() === domainName.toLowerCase(),
+      );
       if (matchingZone) {
         selectedZone = matchingZone;
       } else {
@@ -437,8 +669,8 @@ async function main(): Promise<void> {
   log("Step 5: Configuring DNS...");
 
   const useSubdomain = await promptYesNo(
-    `Use a subdomain (e.g., app.${selectedZone.name})? Otherwise will use root domain.`,
-    true,
+    `Use a subdomain (e.g., app.${selectedZone.name})? Otherwise will use root domain (${selectedZone.name}).`,
+    false,
   );
 
   let recordName: string;
@@ -461,50 +693,285 @@ async function main(): Promise<void> {
     proxied: true, // Enable Cloudflare proxy (orange cloud)
   });
 
+  // Track if user provides a custom API token (will reuse for cache purging)
+  let userProvidedApiToken: string | null = null;
+
   if (dnsSuccess) {
     success(`DNS configured: ${fullDomain} → ${convexHostname}`);
   } else {
     warn("Could not create DNS record automatically.");
-    log(`Please add this record manually in Cloudflare dashboard:`);
-    log(`  Type: CNAME`);
-    log(`  Name: ${recordName}`);
-    log(`  Target: ${convexHostname}`);
-    log(`  Proxy: Enabled (orange cloud)`);
-  }
-
-  // Step 6: Create API token for cache purging
-  log("");
-  log("Step 6: Creating API token for cache purging...");
-
-  const apiToken = await createApiToken(token, selectedZone.name, selectedZone.id);
-  let finalApiToken: string;
-
-  if (apiToken) {
-    success("API token created");
-    finalApiToken = apiToken;
-  } else {
-    warn("Could not create API token automatically.");
-    log("Please create one manually:");
-    log("  1. Go to https://dash.cloudflare.com/profile/api-tokens");
-    log("  2. Click 'Create Token'");
-    log("  3. Use 'Custom token' template");
-    log("  4. Add permission: Zone → Cache Purge → Purge");
-    log(`  5. Limit to zone: ${selectedZone.name}`);
+    log("The wrangler OAuth token doesn't have DNS edit permissions.");
     log("");
-    finalApiToken = await prompt("Paste your API token here: ");
-    if (!finalApiToken) {
-      error("API token is required for cache purging.");
-      rl.close();
-      process.exit(1);
+    log("Create an API token at:");
+    log(`  https://dash.cloudflare.com/profile/api-tokens`);
+    log("");
+    log("Create a custom token with these permissions:");
+    log("  - Zone:DNS:Edit (for creating the CNAME record)");
+    log("  - Zone:Zone:Read");
+    log("  - Zone:Cache Purge:Purge (for cache invalidation on deploy)");
+    log("  - Account:Workers Scripts:Edit (for deploying the proxy worker)");
+    log("  - Zone:SSL and Certificates:Edit (for SSL mode)");
+    log("");
+    log(`Limit the token to zone: ${selectedZone.name}`);
+    log("");
+    const dnsToken = await prompt("Paste your API token here: ");
+
+    if (dnsToken) {
+      log("");
+      log(`Retrying DNS record creation...`);
+      const retrySuccess = await createDnsRecord(dnsToken, selectedZone.id, {
+        type: "CNAME",
+        name: recordName === "@" ? selectedZone.name : recordName,
+        content: convexHostname,
+        proxied: true,
+      });
+
+      if (retrySuccess) {
+        success(`DNS configured: ${fullDomain} → ${convexHostname}`);
+        // Save token for reuse in cache purging step
+        userProvidedApiToken = dnsToken;
+      } else {
+        warn("Still could not create DNS record.");
+        log("Please add it manually in the Cloudflare dashboard:");
+        log(`  https://dash.cloudflare.com/${selectedZone.id}/dns/records`);
+        log("");
+        log(`  Type: CNAME`);
+        log(`  Name: ${recordName}`);
+        log(`  Target: ${convexHostname}`);
+        log(`  Proxy: Enabled (orange cloud)`);
+      }
+    } else {
+      log("");
+      log("Please add this record manually in Cloudflare dashboard:");
+      log(`  https://dash.cloudflare.com/${selectedZone.id}/dns/records`);
+      log("");
+      log(`  Type: CNAME`);
+      log(`  Name: ${recordName}`);
+      log(`  Target: ${convexHostname}`);
+      log(`  Proxy: Enabled (orange cloud)`);
     }
   }
 
-  // Step 7: Save to .env.local
+  // Step 6: Deploy Cloudflare Worker for Host header rewriting
   log("");
-  log("Step 7: Saving configuration...");
+  log("Step 6: Deploying Cloudflare Worker...");
+  info("This is required because Convex validates the Host header.");
+  log("");
+
+  // Extract deployment name from convexHostname (e.g., "different-pika-115" from "different-pika-115.convex.site")
+  const convexDeployment = convexHostname.replace(".convex.site", "");
+
+  // Try with current token first
+  let activeToken = userProvidedApiToken || token;
+  let accountId = await getAccountId(activeToken);
+  let workerDeployed = false;
+  let sslChecked = false;
+
+  // If we can't get account ID with current token, prompt for a more powerful one
+  if (!accountId) {
+    warn("Current token doesn't have account-level permissions.");
+    log("");
+    log("To deploy the Worker and configure SSL, you need an API token with:");
+    log("  - Account:Workers Scripts:Edit");
+    log("  - Zone:SSL and Certificates:Read/Edit");
+    log("");
+    log("Create one at: https://dash.cloudflare.com/profile/api-tokens");
+    log("");
+    const workerToken = await prompt("Paste API token (or press Enter to skip): ");
+    
+    if (workerToken) {
+      activeToken = workerToken;
+      accountId = await getAccountId(activeToken);
+      // Also save for cache purging later
+      if (!userProvidedApiToken) {
+        userProvidedApiToken = workerToken;
+      }
+    }
+  }
+
+  if (accountId) {
+    const workerSuccess = await deployProxyWorker(
+      activeToken,
+      accountId,
+      selectedZone.id,
+      fullDomain,
+      convexDeployment,
+    );
+
+    if (workerSuccess) {
+      success(`Worker deployed: convex-proxy-${fullDomain.replace(/\./g, "-")}`);
+      workerDeployed = true;
+    } else {
+      warn("Could not deploy worker automatically.");
+    }
+  }
+
+  if (!workerDeployed) {
+    warn("Worker not deployed. You need to create it manually:");
+    log("");
+    log("1. Go to: https://dash.cloudflare.com → Workers & Pages → Create");
+    log("2. Create a Worker with this code:");
+    log("");
+    log("---");
+    log(`export default {`);
+    log(`  async fetch(request) {`);
+    log(`    const url = new URL(request.url);`);
+    log(`    const convexUrl = new URL(url.pathname + url.search, "https://${convexHostname}");`);
+    log(`    const headers = new Headers(request.headers);`);
+    log(`    headers.set("Host", "${convexHostname}");`);
+    log(`    return fetch(convexUrl.toString(), { method: request.method, headers, body: request.body });`);
+    log(`  },`);
+    log(`};`);
+    log("---");
+    log("");
+    log(`3. Add a route: ${fullDomain}/* → your-worker-name`);
+    log(`   (in Workers & Pages → your worker → Settings → Triggers → Routes)`);
+  }
+
+  // Step 7: Check and set SSL mode
+  log("");
+  log("Step 7: Checking SSL/TLS mode...");
+
+  const currentSslMode = await getSslMode(activeToken, selectedZone.id);
+
+  if (currentSslMode) {
+    sslChecked = true;
+    if (currentSslMode === "flexible") {
+      warn(`SSL mode is "${currentSslMode}" - this will cause redirect loops!`);
+      log("Changing to \"full\"...");
+
+      const sslSuccess = await setSslMode(activeToken, selectedZone.id, "full");
+      if (sslSuccess) {
+        success("SSL mode set to \"full\"");
+      } else {
+        error("Could not change SSL mode automatically.");
+        log("Please change it manually:");
+        log(`  1. Go to https://dash.cloudflare.com → ${selectedZone.name} → SSL/TLS`);
+        log("  2. Set encryption mode to \"Full\"");
+      }
+    } else if (currentSslMode === "full" || currentSslMode === "strict") {
+      success(`SSL mode is "${currentSslMode}" (OK)`);
+    } else {
+      info(`SSL mode is "${currentSslMode}"`);
+      log("If you experience redirect loops, change it to \"Full\" or \"Full (strict)\"");
+    }
+  }
+
+  if (!sslChecked) {
+    warn("Could not check SSL mode.");
+    log("");
+    log("IMPORTANT: Make sure SSL/TLS mode is set to \"Full\" (not \"Flexible\")!");
+    log("Otherwise you will get redirect loops.");
+    log("");
+    log(`Go to: https://dash.cloudflare.com → ${selectedZone.name} → SSL/TLS → Overview`);
+    log("Set encryption mode to \"Full\" or \"Full (strict)\"");
+  }
+
+  // Step 8: Get API token for cache purging
+  log("");
+  log("Step 8: Setting up cache purge token...");
+
+  let finalApiToken: string;
+
+  // Reuse user-provided token if they already gave us one with cache purge permissions
+  if (userProvidedApiToken) {
+    success("Using your API token for cache purging");
+    finalApiToken = userProvidedApiToken;
+  } else {
+    // Try to create one automatically
+    const apiToken = await createApiToken(
+      token,
+      selectedZone.name,
+      selectedZone.id,
+    );
+
+    if (apiToken) {
+      success("API token created for cache purging");
+      finalApiToken = apiToken;
+    } else {
+      warn("Could not create API token automatically.");
+      log("Please create one manually:");
+      log("  1. Go to https://dash.cloudflare.com/profile/api-tokens");
+      log("  2. Click 'Create Token'");
+      log("  3. Use 'Custom token' template");
+      log("  4. Add permission: Zone → Cache Purge → Purge");
+      log(`  5. Limit to zone: ${selectedZone.name}`);
+      log("");
+      finalApiToken = await prompt("Paste your API token here: ");
+      if (!finalApiToken) {
+        error("API token is required for cache purging.");
+        rl.close();
+        process.exit(1);
+      }
+    }
+  }
+
+  // Step 9: Save to .env.local
+  log("");
+  log("Step 9: Saving configuration...");
 
   saveToEnv(selectedZone.id, finalApiToken, fullDomain);
   success("Credentials saved to .env.local");
+
+  // Step 10: Check production deployment and offer to deploy
+  log("");
+  log("Step 10: Checking production deployment...");
+
+  // Check if Convex backend is deployed to production
+  const hasProdDeployment = getConvexProdUrl() !== null;
+
+  if (!hasProdDeployment) {
+    warn("No Convex production deployment detected.");
+    const shouldDeploy = await promptYesNo(
+      "Would you like to deploy your Convex backend to production now?",
+    );
+    if (shouldDeploy) {
+      log("");
+      log("Deploying Convex backend to production...");
+      spawnSync("npx", ["convex", "deploy"], { stdio: "inherit" });
+      success("Convex backend deployed to production!");
+    } else {
+      log("");
+      info("Remember to deploy your Convex backend first:");
+      log("  npx convex deploy");
+    }
+  } else {
+    success("Convex production deployment found");
+  }
+
+  // Step 11: Check if static files have been deployed
+  log("");
+  log("Step 11: Checking static files deployment...");
+
+  const hasStaticFiles = hasStaticDeployment();
+
+  if (!hasStaticFiles) {
+    warn("No static files deployed yet.");
+    const shouldDeployStatic = await promptYesNo(
+      "Would you like to build and deploy static files now?",
+    );
+    if (shouldDeployStatic) {
+      log("");
+      log("Building app...");
+      const buildResult = spawnSync("npm", ["run", "build"], { stdio: "inherit" });
+      
+      if (buildResult.status === 0) {
+        log("");
+        log("Uploading static files to production...");
+        spawnSync("npm", ["run", "deploy:static"], { stdio: "inherit" });
+        success("Static files deployed!");
+      } else {
+        warn("Build failed. Please fix any errors and run:");
+        log("  npm run build && npm run deploy:static");
+      }
+    } else {
+      log("");
+      info("To deploy static files later, run:");
+      log("  npm run build && npm run deploy:static");
+    }
+  } else {
+    success("Static files already deployed");
+  }
 
   // Done!
   log("");
@@ -516,11 +983,10 @@ async function main(): Promise<void> {
   log(`  Zone ID: ${selectedZone.id}`);
   log(`  Proxied: Yes (Cloudflare CDN enabled)`);
   log("");
-  log("Next steps:");
-  log("  1. Wait a few minutes for DNS to propagate");
-  log(`  2. Deploy your app: npm run deploy:static`);
-  log(`  3. Visit: https://${fullDomain}`);
+  log("Your site should be live at:");
+  log(`  https://${fullDomain}`);
   log("");
+  log("Note: DNS propagation may take a few minutes.");
   log("Cache will be automatically purged on each deploy.");
   log("");
 

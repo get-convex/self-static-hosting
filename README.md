@@ -89,13 +89,14 @@ export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
 {
   "scripts": {
     "build": "vite build",
-    "deploy:static": "npm run build && npx @get-convex/self-static-hosting upload"
+    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod"
   }
 }
 ```
 
-The CLI will automatically find your `dist/` directory and upload to the
-`staticHosting` component.
+**Important:** Use `--build` to ensure `VITE_CONVEX_URL` is set correctly for
+production. Don't run `npm run build` separately before the upload command, as
+that would use the dev URL from `.env.local`.
 
 **CLI Options:**
 
@@ -103,10 +104,26 @@ The CLI will automatically find your `dist/` directory and upload to the
 npx @get-convex/self-static-hosting upload [options]
 
 Options:
-  -d, --dist <path>     Path to dist directory (default: ./dist)
+  -d, --dist <path>        Path to dist directory (default: ./dist)
   -c, --component <name>   Convex component name (default: staticHosting)
-      --domain <name>   Domain for Cloudflare cache purge (auto-detects zone ID)
-  -h, --help            Show help
+      --prod               Deploy to production Convex deployment
+      --dev                Deploy to dev deployment (default)
+  -b, --build              Run 'npm run build' with correct VITE_CONVEX_URL
+      --domain <name>      Custom domain for URL output and Cloudflare cache purge
+  -h, --help               Show help
+```
+
+**Examples:**
+
+```bash
+# Deploy to production with automatic build
+npx @get-convex/self-static-hosting upload --build --prod
+
+# Deploy to production with custom domain (also purges Cloudflare cache)
+npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com
+
+# Deploy to dev (for testing)
+npx @get-convex/self-static-hosting upload --build
 ```
 
 ## Deployment
@@ -115,12 +132,27 @@ Options:
 # Make sure you're logged in to Convex
 npx convex login
 
-# Deploy to Convex
-npm run deploy:static
+# Deploy your Convex backend to production first
+npx convex deploy
 
-# Your app is now live at:
-# https://your-deployment.convex.site
+# Deploy static files to production
+npm run deploy:static
 ```
+
+Your app is now live at `https://your-deployment.convex.site`
+
+If you have a custom domain set up via Cloudflare, add `--domain`:
+
+```json
+{
+  "scripts": {
+    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com"
+  }
+}
+```
+
+This will show your custom domain in the output and automatically purge the
+Cloudflare cache.
 
 ## Security
 
@@ -147,9 +179,12 @@ This interactive wizard will:
 
 1. Login to Cloudflare (via wrangler)
 2. Let you select or add a domain
-3. Configure DNS pointing to your Convex site
-4. Create an API token for cache purging
-5. Save credentials to `.env.local`
+3. Detect your production Convex deployment URL
+4. Configure DNS (CNAME pointing to your Convex site)
+5. Deploy a Cloudflare Worker to handle Host header rewriting
+6. Ensure SSL/TLS mode is set to "Full" (prevents redirect loops)
+7. Set up cache purge credentials
+8. Offer to deploy your Convex backend and static files
 
 Then just deploy - cache is automatically purged!
 
@@ -198,7 +233,9 @@ This lets you configure Cloudflare Page Rules separately:
 
 Your app will be available at `https://yourdomain.com/app/`
 
-### Setting Up Cloudflare
+### Setting Up Cloudflare (Manual)
+
+If you prefer to set up manually instead of using the wizard:
 
 1. **Add your site to Cloudflare** and update your domain's nameservers
 
@@ -211,9 +248,35 @@ Your app will be available at `https://yourdomain.com/app/`
    Proxy: Enabled (orange cloud)
    ```
 
-3. **Configure SSL** - Set to "Full" in Cloudflare SSL/TLS settings
+3. **Deploy a Cloudflare Worker** to rewrite the Host header (required because
+   Convex validates the Host header matches `*.convex.site`):
 
-4. **(Optional) Add Page Rules** for fine-grained cache control:
+   ```js
+   export default {
+     async fetch(request) {
+       const url = new URL(request.url);
+       const convexUrl = new URL(
+         url.pathname + url.search,
+         "https://your-deployment.convex.site",
+       );
+       const headers = new Headers(request.headers);
+       headers.set("Host", "your-deployment.convex.site");
+       return fetch(convexUrl.toString(), {
+         method: request.method,
+         headers,
+         body: request.body,
+       });
+     },
+   };
+   ```
+
+   Then add a route: `yourdomain.com/*` → your worker
+
+4. **Set SSL/TLS mode to "Full"** - This is critical! "Flexible" mode will cause
+   redirect loops because Cloudflare sends HTTP to Convex, which redirects to
+   HTTPS.
+
+5. **(Optional) Add Page Rules** for fine-grained cache control:
    - `/app/assets/*` → Cache Level: Cache Everything, Edge TTL: 1 year
    - `/app/*` → Cache Level: Cache Everything, Edge TTL: 1 day
 
@@ -221,30 +284,34 @@ Your app will be available at `https://yourdomain.com/app/`
 
 The CLI can automatically purge Cloudflare cache after deploying.
 
-**Option 1: Use `--domain` flag (easiest)**
+**Option 1: Use `--domain` flag (recommended)**
 
 ```bash
 # First, login to Cloudflare via wrangler
 npx wrangler login
 
 # Then deploy with your domain
-npx @get-convex/self-static-hosting upload --domain mysite.com
+npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com
 ```
 
 The CLI will auto-detect your zone ID and purge the cache.
 
 **Option 2: Environment variables (for CI/CD)**
 
+If you ran `setup-cloudflare`, the credentials are saved in `.env.local`.
+Otherwise, set them manually:
+
 ```bash
 export CLOUDFLARE_ZONE_ID="your-zone-id"
 export CLOUDFLARE_API_TOKEN="your-api-token"
-npx @get-convex/self-static-hosting upload
+npx @get-convex/self-static-hosting upload --build --prod
 ```
 
 To get these values:
 
 - Zone ID: Found on your domain's overview page in Cloudflare
-- API Token: Create at Account → API Tokens with "Cache Purge" permission
+- API Token: Create at dash.cloudflare.com/profile/api-tokens with "Cache Purge"
+  permission
 
 **Option 3: Via Convex function (for advanced CI/CD)**
 
