@@ -23,7 +23,7 @@ HTTP actions and file storage. No external hosting provider required!
 Install the component:
 
 ```bash
-npm install @get-convex/self-static-hosting
+npm install github:get-convex/self-static-hosting#main
 ```
 
 ### Quick Start with LLM

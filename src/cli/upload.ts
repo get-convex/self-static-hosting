@@ -313,7 +313,9 @@ async function main(): Promise<void> {
         }
       } catch {
         console.error("Could not get production Convex URL.");
-        console.error("Make sure you have deployed to production: npx convex deploy");
+        console.error(
+          "Make sure you have deployed to production: npx convex deploy",
+        );
         process.exit(1);
       }
     } else {
@@ -355,7 +357,9 @@ async function main(): Promise<void> {
 
   if (!existsSync(distDir)) {
     console.error(`Error: dist directory not found: ${distDir}`);
-    console.error("Run your build command first (e.g., 'npm run build' or add --build flag)");
+    console.error(
+      "Run your build command first (e.g., 'npm run build' or add --build flag)",
+    );
     process.exit(1);
   }
 
@@ -503,7 +507,9 @@ async function main(): Promise<void> {
 
   if (!cachePurged && !args.domain) {
     console.log("");
-    console.log("💡 Tip: Add --domain yoursite.com to auto-purge Cloudflare cache");
+    console.log(
+      "💡 Tip: Add --domain yoursite.com to auto-purge Cloudflare cache",
+    );
     console.log("   (requires 'npx wrangler login' or CLOUDFLARE_API_TOKEN)");
   }
 }

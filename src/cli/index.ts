@@ -71,7 +71,7 @@ function printInitInstructions() {
 ## 1. Install the component
 
 \`\`\`bash
-npm install @get-convex/self-static-hosting
+npm install github:get-convex/self-static-hosting#main
 \`\`\`
 
 ## 2. Add to convex.config.ts

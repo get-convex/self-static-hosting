@@ -87,16 +87,21 @@ export default http;
 {
   "scripts": {
     "build": "vite build",
-    "deploy:static": "npm run build && npx @get-convex/self-static-hosting upload"
+    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod"
   }
 }
 \`\`\`
 
-If using a path prefix, specify the component:
+IMPORTANT: Use \`--build\` flag instead of running \`npm run build\` separately.
+The \`--build\` flag ensures \`VITE_CONVEX_URL\` is set correctly for the target
+environment (production or dev). Running build separately uses .env.local which
+has the dev URL.
+
+For custom domains with Cloudflare:
 \`\`\`json
 {
   "scripts": {
-    "deploy:static": "npm run build && npx @get-convex/self-static-hosting upload --component staticHosting"
+    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --domain yourdomain.com"
   }
 }
 \`\`\`
@@ -143,10 +148,10 @@ function App() {
 # Login to Convex (first time)
 npx convex login
 
-# Push Convex functions
-npx convex dev --once
+# Deploy Convex backend to production FIRST
+npx convex deploy
 
-# Build and deploy static files
+# Deploy static files to production
 npm run deploy:static
 
 # Your app is now live at:
@@ -154,23 +159,73 @@ npm run deploy:static
 # (or https://your-deployment.convex.site/app/ if using path prefix)
 \`\`\`
 
-## Optional: Cloudflare CDN
-
-For production with custom domain and edge caching:
-
+For development/testing:
 \`\`\`bash
-# Login to Cloudflare
-npx wrangler login
+# Push to dev environment
+npx convex dev --once
 
-# Deploy with automatic cache purge
-npx @get-convex/self-static-hosting upload --domain yourdomain.com
+# Deploy static files to dev (omit --prod)
+npx @get-convex/self-static-hosting upload --build
 \`\`\`
 
-Or for CI/CD, set environment variables:
+## Optional: Cloudflare CDN with Custom Domain
+
+For production with a custom domain, edge caching, and DDoS protection.
+
+### Quick Setup (Recommended)
+
+Run the interactive wizard:
+
+\`\`\`bash
+npx @get-convex/self-static-hosting setup-cloudflare
+\`\`\`
+
+This wizard will:
+1. Login to Cloudflare (via wrangler)
+2. Let you select or add a domain
+3. Detect your production Convex deployment URL
+4. Configure DNS (CNAME pointing to your Convex site)
+5. Deploy a Cloudflare Worker to handle Host header rewriting
+6. Set SSL/TLS mode to "Full" (prevents redirect loops)
+7. Set up cache purge credentials
+8. Offer to deploy your Convex backend and static files
+
+After setup, deploy with:
+\`\`\`bash
+npm run deploy:static
+\`\`\`
+
+The Cloudflare cache is automatically purged on each deploy.
+
+### Manual Cloudflare Setup
+
+If you prefer manual setup:
+
+1. Add your domain to Cloudflare
+2. Create a CNAME record pointing to your-deployment.convex.site
+3. Deploy a Cloudflare Worker to rewrite the Host header (required!)
+4. Set SSL/TLS mode to "Full" (not "Flexible")
+
+For CI/CD, set environment variables:
 \`\`\`bash
 export CLOUDFLARE_ZONE_ID="your-zone-id"
 export CLOUDFLARE_API_TOKEN="your-api-token"
 npm run deploy:static
+\`\`\`
+
+## CLI Reference
+
+\`\`\`bash
+npx @get-convex/self-static-hosting upload [options]
+
+Options:
+  -d, --dist <path>        Path to dist directory (default: ./dist)
+  -c, --component <name>   Convex component name (default: staticHosting)
+      --prod               Deploy to production Convex deployment
+      --dev                Deploy to dev deployment (default)
+  -b, --build              Run 'npm run build' with correct VITE_CONVEX_URL
+      --domain <name>      Custom domain for URL output and cache purge
+  -h, --help               Show help
 \`\`\`
 
 ## Important Notes
@@ -179,6 +234,8 @@ npm run deploy:static
 2. Static files are stored in the app's storage (not the component's) for proper isolation
 3. Hashed assets (e.g., main-abc123.js) get immutable caching; HTML files always revalidate
 4. The component supports SPA routing - routes without file extensions serve index.html
+5. Always use \`--build\` flag to ensure VITE_CONVEX_URL is set correctly for the target environment
+6. Deploy Convex backend (\`npx convex deploy\`) BEFORE deploying static files to production
 `;
 
 console.log(instructions);
