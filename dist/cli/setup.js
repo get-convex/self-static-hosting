@@ -67,10 +67,81 @@ function success(message) {
 function error(message) {
     console.log(`✗ ${message}`);
 }
+function warn(message) {
+    console.log(`⚠️  ${message}`);
+}
+/**
+ * Check if we're in a git repository
+ */
+function isGitRepo() {
+    try {
+        execSync("git rev-parse --git-dir", { stdio: "pipe" });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Check if there are unstaged changes
+ */
+function hasUnstagedChanges() {
+    try {
+        const status = execSync("git status --porcelain", {
+            stdio: "pipe",
+            encoding: "utf-8",
+        });
+        return status.trim().length > 0;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Check if we should show diffs (not in git OR has unstaged changes)
+ */
+function shouldShowDiffs() {
+    const inGit = isGitRepo();
+    if (!inGit) {
+        return true;
+    }
+    return hasUnstagedChanges();
+}
+/**
+ * Show a simple diff between old and new content
+ */
+function showDiff(filePath, oldContent, newContent) {
+    console.log("");
+    console.log(`Changes to ${filePath}:`);
+    console.log("─".repeat(60));
+    const oldLines = oldContent.split("\n");
+    const newLines = newContent.split("\n");
+    // Simple line-by-line comparison
+    const maxLines = Math.max(oldLines.length, newLines.length);
+    let changes = 0;
+    for (let i = 0; i < maxLines && changes < 10; i++) {
+        const oldLine = oldLines[i] || "";
+        const newLine = newLines[i] || "";
+        if (oldLine !== newLine) {
+            if (oldLine) {
+                console.log(`- ${oldLine}`);
+            }
+            if (newLine) {
+                console.log(`+ ${newLine}`);
+            }
+            changes++;
+        }
+    }
+    if (maxLines > 10) {
+        console.log("... (showing first 10 changes)");
+    }
+    console.log("─".repeat(60));
+    console.log("");
+}
 /**
  * Create or update convex.config.ts
  */
-function createConvexConfig() {
+async function createConvexConfig() {
     const configPath = join(process.cwd(), "convex", "convex.config.ts");
     const configContent = `import { defineApp } from "convex/server";
 import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";
@@ -86,12 +157,25 @@ export default app;
             success("convex/convex.config.ts already configured");
             return false;
         }
-        // Ask before modifying
-        console.log("⚠️  convex/convex.config.ts exists but doesn't include selfStaticHosting");
-        console.log("You'll need to manually add:");
-        console.log('  import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";');
-        console.log("  app.use(selfStaticHosting);");
-        return false;
+        // Show diff and ask for confirmation if no git safety net
+        if (shouldShowDiffs()) {
+            warn("convex/convex.config.ts exists but doesn't include selfStaticHosting");
+            showDiff("convex/convex.config.ts", existing, configContent);
+            const shouldUpdate = await promptYesNo("Update this file?", true);
+            if (!shouldUpdate) {
+                console.log("Skipped. You'll need to manually add:");
+                console.log('  import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";');
+                console.log("  app.use(selfStaticHosting);");
+                return false;
+            }
+        }
+        else {
+            warn("convex/convex.config.ts exists but doesn't include selfStaticHosting");
+            console.log("You'll need to manually add:");
+            console.log('  import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";');
+            console.log("  app.use(selfStaticHosting);");
+            return false;
+        }
     }
     writeFileSync(configPath, configContent);
     success("Created convex/convex.config.ts");
@@ -100,7 +184,7 @@ export default app;
 /**
  * Create staticHosting.ts with upload API
  */
-function createStaticHostingFile() {
+async function createStaticHostingFile() {
     const filePath = join(process.cwd(), "convex", "staticHosting.ts");
     const content = `import { components } from "./_generated/api";
 import {
@@ -117,8 +201,21 @@ export const { getCurrentDeployment } =
   exposeDeploymentQuery(components.selfStaticHosting);
 `;
     if (existsSync(filePath)) {
-        success("convex/staticHosting.ts already exists");
-        return false;
+        const existing = readFileSync(filePath, "utf-8");
+        // Show diff and ask for confirmation if no git safety net
+        if (shouldShowDiffs()) {
+            warn("convex/staticHosting.ts already exists");
+            showDiff("convex/staticHosting.ts", existing, content);
+            const shouldUpdate = await promptYesNo("Overwrite this file?", false);
+            if (!shouldUpdate) {
+                console.log("Skipped convex/staticHosting.ts");
+                return false;
+            }
+        }
+        else {
+            success("convex/staticHosting.ts already exists");
+            return false;
+        }
     }
     writeFileSync(filePath, content);
     success("Created convex/staticHosting.ts");
@@ -127,7 +224,7 @@ export const { getCurrentDeployment } =
 /**
  * Create http.ts with static routes (only for Convex storage mode)
  */
-function createHttpFile() {
+async function createHttpFile() {
     const filePath = join(process.cwd(), "convex", "http.ts");
     const content = `import { httpRouter } from "convex/server";
 import { registerStaticRoutes } from "@get-convex/self-static-hosting";
@@ -152,12 +249,25 @@ export default http;
             success("convex/http.ts already configured");
             return false;
         }
-        // Ask before modifying
-        console.log("⚠️  convex/http.ts exists but doesn't include registerStaticRoutes");
-        console.log("You'll need to manually add:");
-        console.log('  import { registerStaticRoutes } from "@get-convex/self-static-hosting";');
-        console.log("  registerStaticRoutes(http, components.selfStaticHosting);");
-        return false;
+        // Show diff and ask for confirmation if no git safety net
+        if (shouldShowDiffs()) {
+            warn("convex/http.ts exists but doesn't include registerStaticRoutes");
+            showDiff("convex/http.ts", existing, content);
+            const shouldUpdate = await promptYesNo("Update this file?", true);
+            if (!shouldUpdate) {
+                console.log("Skipped. You'll need to manually add:");
+                console.log('  import { registerStaticRoutes } from "@get-convex/self-static-hosting";');
+                console.log("  registerStaticRoutes(http, components.selfStaticHosting);");
+                return false;
+            }
+        }
+        else {
+            warn("convex/http.ts exists but doesn't include registerStaticRoutes");
+            console.log("You'll need to manually add:");
+            console.log('  import { registerStaticRoutes } from "@get-convex/self-static-hosting";');
+            console.log("  registerStaticRoutes(http, components.selfStaticHosting);");
+            return false;
+        }
     }
     writeFileSync(filePath, content);
     success("Created convex/http.ts");
@@ -308,10 +418,10 @@ async function main() {
     console.log("📝 Creating files...");
     console.log("");
     // Step 3: Create files
-    createConvexConfig();
-    createStaticHostingFile();
+    await createConvexConfig();
+    await createStaticHostingFile();
     if (config.createHttp) {
-        createHttpFile();
+        await createHttpFile();
     }
     else {
         console.log("ℹ️  Skipping convex/http.ts (not needed for Cloudflare Pages)");
