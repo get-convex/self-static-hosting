@@ -18,6 +18,13 @@ HTTP actions and file storage. No external hosting provider required!
 - 📦 **Zero config** - Works out of the box with Vite, Create React App, and
   other bundlers
 
+
+
+https://github.com/user-attachments/assets/5eaf781f-87da-4292-9f96-38070c86cd39
+
+
+
+
 ## Installation
 
 Install the component:
