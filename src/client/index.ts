@@ -1,5 +1,6 @@
 import {
   httpActionGeneric,
+  internalActionGeneric,
   internalMutationGeneric,
   internalQueryGeneric,
   queryGeneric,
@@ -139,6 +140,24 @@ export function registerStaticRoutes(
       });
     }
 
+    // Use storageId as ETag (unique per file content)
+    const etag = `"${asset.storageId}"`;
+
+    // Check for conditional request (If-None-Match)
+    const ifNoneMatch = request.headers.get("If-None-Match");
+    if (ifNoneMatch === etag) {
+      // Client has current version - return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          "Cache-Control": isHashedAsset(path)
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=0, must-revalidate",
+        },
+      });
+    }
+
     // Get file from storage
     const blob = await ctx.storage.get(asset.storageId);
     if (!blob) {
@@ -158,6 +177,7 @@ export function registerStaticRoutes(
       headers: {
         "Content-Type": asset.contentType,
         "Cache-Control": cacheControl,
+        ETag: etag,
         "X-Content-Type-Options": "nosniff",
       },
     });
@@ -371,4 +391,84 @@ export function getConvexUrlWithFallback(envUrl?: string): string {
   }
 
   return getConvexUrl();
+}
+
+/**
+ * Expose an action to purge Cloudflare cache after deployment.
+ * This is optional - only needed if you're using Cloudflare as a CDN.
+ *
+ * @example
+ * ```typescript
+ * // In your convex/staticHosting.ts
+ * import { exposeCachePurgeAction } from "@get-convex/self-static-hosting";
+ *
+ * export const { purgeCloudflareCache } = exposeCachePurgeAction();
+ * ```
+ *
+ * Then call after deployment:
+ * ```bash
+ * npx convex run staticHosting:purgeCloudflareCache \
+ *   '{"zoneId": "your-zone-id", "apiToken": "your-api-token", "purgeAll": true}'
+ * ```
+ */
+export function exposeCachePurgeAction() {
+  return {
+    /**
+     * Purge Cloudflare cache after a deployment.
+     * Can purge all files or specific URLs.
+     */
+    purgeCloudflareCache: internalActionGeneric({
+      args: {
+        zoneId: v.string(),
+        apiToken: v.string(),
+        purgeAll: v.optional(v.boolean()),
+        files: v.optional(v.array(v.string())),
+      },
+      handler: async (ctx, args) => {
+        const { zoneId, apiToken, purgeAll, files } = args;
+
+        // Build request body
+        let body: Record<string, unknown>;
+        if (purgeAll) {
+          body = { purge_everything: true };
+        } else if (files && files.length > 0) {
+          body = { files };
+        } else {
+          throw new Error(
+            "Must specify either purgeAll: true or provide files array",
+          );
+        }
+
+        // Call Cloudflare API
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          },
+        );
+
+        const result = (await response.json()) as {
+          success: boolean;
+          errors: Array<{ code: number; message: string }>;
+        };
+
+        if (!result.success) {
+          throw new Error(
+            `Cloudflare cache purge failed: ${JSON.stringify(result.errors)}`,
+          );
+        }
+
+        return {
+          success: true,
+          purgedAll: purgeAll ?? false,
+          purgedFiles: files?.length ?? 0,
+        };
+      },
+    }),
+  };
 }

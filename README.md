@@ -199,6 +199,101 @@ The upload API uses **internal functions** that can only be called via:
 
 This means unauthorized users **cannot** upload files to your site, even if they know your Convex URL.
 
+## CDN Setup (Cloudflare)
+
+For production deployments, you can put Cloudflare in front of your Convex static site for:
+- **Edge caching** - Assets served from 300+ global PoPs
+- **Automatic compression** - Brotli/gzip handled by Cloudflare
+- **DDoS protection** - Built-in security
+- **Custom domains** - Use `yourapp.com` instead of `*.convex.site`
+
+### Cache Behavior
+
+| File Type | Cache-Control | ETag | CDN Behavior |
+|-----------|---------------|------|--------------|
+| `*.js`, `*.css` (hashed) | `max-age=1yr, immutable` | ✓ | Cached forever, new hash = new URL |
+| `index.html` | `must-revalidate` | ✓ | Revalidates with 304 support |
+| Images, fonts | `max-age=1yr, immutable` | ✓ | Cached long-term |
+
+### Setting Up Cloudflare
+
+1. **Add your site to Cloudflare** and update your domain's nameservers
+
+2. **Create a CNAME record** pointing to your Convex site:
+   ```
+   Type: CNAME
+   Name: @ (or subdomain)
+   Target: your-deployment.convex.site
+   Proxy: Enabled (orange cloud)
+   ```
+
+3. **Configure SSL** - Set to "Full" in Cloudflare SSL/TLS settings
+
+### Optional: Cache Purging
+
+To automatically purge Cloudflare cache on deploy:
+
+1. **Expose the cache purge action** in your `convex/staticHosting.ts`:
+   ```ts
+   import { exposeCachePurgeAction } from "@get-convex/self-static-hosting";
+   
+   export const { purgeCloudflareCache } = exposeCachePurgeAction();
+   ```
+
+2. **Get your Cloudflare credentials**:
+   - Zone ID: Found on your domain's overview page
+   - API Token: Create one at Account > API Tokens with "Cache Purge" permission
+
+3. **Set environment variables** before deploying:
+   ```bash
+   export CLOUDFLARE_ZONE_ID="your-zone-id"
+   export CLOUDFLARE_API_TOKEN="your-api-token"
+   npm run deploy:static
+   ```
+
+The deploy script will automatically purge the cache after uploading new files.
+
+## Live Reload on Deploy
+
+Connected clients can be notified when a new deployment is available:
+
+1. **Expose the deployment query**:
+   ```ts
+   import { exposeDeploymentQuery } from "@get-convex/self-static-hosting";
+   import { components } from "./_generated/api";
+   
+   export const { getCurrentDeployment } = 
+     exposeDeploymentQuery(components.selfStaticHosting);
+   ```
+
+2. **Add the update banner to your app**:
+   ```tsx
+   import { UpdateBanner } from "@get-convex/self-static-hosting/react";
+   import { api } from "../convex/_generated/api";
+   
+   function App() {
+     return (
+       <div>
+         <UpdateBanner
+           getCurrentDeployment={api.staticHosting.getCurrentDeployment}
+           message="New version available!"
+           buttonText="Refresh"
+         />
+         {/* rest of your app */}
+       </div>
+     );
+   }
+   ```
+
+Or use the hook for custom UI:
+```tsx
+import { useDeploymentUpdates } from "@get-convex/self-static-hosting/react";
+
+const { updateAvailable, reload, dismiss } = useDeploymentUpdates(
+  api.staticHosting.getCurrentDeployment
+);
+```
+
 ## Configuration Options
 
 ### `registerStaticRoutes`

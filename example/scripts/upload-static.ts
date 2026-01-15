@@ -155,6 +155,27 @@ async function main() {
   }
 
   console.log("");
+
+  // Optional: Purge Cloudflare cache if configured
+  const cloudflareZoneId = process.env.CLOUDFLARE_ZONE_ID;
+  const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+  if (cloudflareZoneId && cloudflareApiToken) {
+    console.log("☁️  Purging Cloudflare cache...");
+    try {
+      convexRun("example:purgeCloudflareCache", {
+        zoneId: cloudflareZoneId,
+        apiToken: cloudflareApiToken,
+        purgeAll: true,
+      });
+      console.log("   Cache purged successfully");
+    } catch (error) {
+      console.warn("   Warning: Cloudflare cache purge failed:", error);
+      // Don't fail the deployment for cache purge issues
+    }
+    console.log("");
+  }
+
   console.log("✨ Upload complete!");
   console.log("");
 
@@ -168,6 +189,14 @@ async function main() {
       console.log(
         `Your app is now available at: ${convexUrl.replace(".convex.cloud", ".convex.site")}`,
       );
+
+      // Hint about Cloudflare if not configured
+      if (!cloudflareZoneId || !cloudflareApiToken) {
+        console.log("");
+        console.log(
+          "💡 Tip: Set CLOUDFLARE_ZONE_ID and CLOUDFLARE_API_TOKEN to enable CDN cache purging",
+        );
+      }
     }
   }
 }
