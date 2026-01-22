@@ -533,6 +533,28 @@ async function getWorkerSubdomain(
 }
 
 /**
+ * Add a custom domain to a Cloudflare Worker
+ */
+async function addWorkerCustomDomain(
+  token: string,
+  accountId: string,
+  workerName: string,
+  zoneId: string,
+  hostname: string,
+): Promise<boolean> {
+  const data = await cfApi(`/accounts/${accountId}/workers/domains`, token, {
+    method: "PUT",
+    body: JSON.stringify({
+      hostname,
+      service: workerName,
+      environment: "production",
+      zone_id: zoneId,
+    }),
+  });
+  return data.success;
+}
+
+/**
  * Run the Cloudflare Workers setup flow
  */
 async function runWorkersSetup(token: string): Promise<void> {
@@ -585,9 +607,104 @@ async function runWorkersSetup(token: string): Promise<void> {
   saveWorkerNameToEnv(workerName);
   success("Saved CLOUDFLARE_WORKER_NAME to .env.local");
 
+  // Step 3: Custom domain setup
+  log("");
+  log("Step 3: Custom domain setup...");
+  log("");
+
+  const wantCustomDomain = await promptYesNo(
+    "Would you like to add a custom domain?",
+    true,
+  );
+
+  let customDomain: string | null = null;
+  let selectedZone: { id: string; name: string } | null = null;
+
+  if (wantCustomDomain) {
+    // List zones
+    const zones = await listZones(token);
+
+    if (zones.length === 0) {
+      warn("No domains found in your Cloudflare account.");
+      log("");
+      log("To add a domain to Cloudflare:");
+      log("  1. Go to https://dash.cloudflare.com/");
+      log("  2. Click 'Add a site'");
+      log("  3. Follow the setup wizard");
+      log("");
+      log("You can add a custom domain later in the Cloudflare dashboard.");
+    } else {
+      log("");
+      log("Your domains in Cloudflare:");
+      zones.forEach((zone, i) => {
+        log(`  ${i + 1}. ${zone.name} (${zone.status})`);
+      });
+      log("");
+
+      const choice = await prompt(`Select a domain [1-${zones.length}]: `);
+      const choiceNum = parseInt(choice, 10);
+
+      if (choiceNum >= 1 && choiceNum <= zones.length) {
+        selectedZone = zones[choiceNum - 1];
+
+        // Ask about subdomain
+        const useSubdomain = await promptYesNo(
+          `Use a subdomain (e.g., app.${selectedZone.name})? Otherwise will use root domain.`,
+          false,
+        );
+
+        if (useSubdomain) {
+          const subdomainName = await prompt("Enter subdomain (e.g., app, www): ");
+          customDomain = subdomainName
+            ? `${subdomainName}.${selectedZone.name}`
+            : `app.${selectedZone.name}`;
+        } else {
+          customDomain = selectedZone.name;
+        }
+
+        log("");
+        log(`Configuring custom domain: ${customDomain}`);
+
+        // Check SSL mode first
+        const currentSslMode = await getSslMode(token, selectedZone.id);
+        if (currentSslMode === "flexible") {
+          warn(`SSL mode is "flexible" - this may cause issues.`);
+          log("Changing to \"full\"...");
+          const sslSuccess = await setSslMode(token, selectedZone.id, "full");
+          if (sslSuccess) {
+            success("SSL mode set to \"full\"");
+          } else {
+            warn("Could not change SSL mode automatically.");
+            log(`Please set SSL/TLS mode to "Full" at:`);
+            log(`  https://dash.cloudflare.com → ${selectedZone.name} → SSL/TLS`);
+          }
+        } else if (currentSslMode) {
+          success(`SSL mode is "${currentSslMode}" (OK)`);
+        }
+
+        // Try to add custom domain
+        // Note: The worker must exist first, so we'll try but it may fail
+        const domainAdded = await addWorkerCustomDomain(
+          token,
+          accountId,
+          workerName,
+          selectedZone.id,
+          customDomain,
+        );
+
+        if (domainAdded) {
+          success(`Custom domain configured: ${customDomain}`);
+        } else {
+          info("Custom domain will be configured after first deploy.");
+          log("(The worker must exist before adding a custom domain)");
+        }
+      }
+    }
+  }
+
   // Offer to deploy
   log("");
-  log("Step 3: Deploy static files...");
+  log("Step 4: Deploy static files...");
   log("");
   const shouldDeploy = await promptYesNo(
     "Would you like to build and deploy static files now?",
@@ -616,6 +733,27 @@ async function runWorkersSetup(token: string): Promise<void> {
 
       if (deployResult.status === 0) {
         success("Deployment complete!");
+
+        // If we had a custom domain that failed earlier, try again now
+        if (customDomain && selectedZone) {
+          log("");
+          log("Configuring custom domain...");
+          const domainAdded = await addWorkerCustomDomain(
+            token,
+            accountId,
+            workerName,
+            selectedZone.id,
+            customDomain,
+          );
+
+          if (domainAdded) {
+            success(`Custom domain configured: ${customDomain}`);
+          } else {
+            warn("Could not configure custom domain automatically.");
+            log("Add it manually in the Cloudflare dashboard:");
+            log(`  Workers & Pages → ${workerName} → Settings → Domains & Routes`);
+          }
+        }
       } else {
         warn("Deployment failed. Try running manually:");
         log(`  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name ${workerName} --prod`);
@@ -625,6 +763,11 @@ async function runWorkersSetup(token: string): Promise<void> {
       log(`  npm run build`);
       log(`  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name ${workerName} --prod`);
     }
+  } else if (customDomain && selectedZone) {
+    log("");
+    info("After deploying, add your custom domain:");
+    log(`  Workers & Pages → ${workerName} → Settings → Domains & Routes`);
+    log(`  Or run this wizard again after deploying.`);
   }
 
   // Build the URL
@@ -640,10 +783,15 @@ async function runWorkersSetup(token: string): Promise<void> {
   log("Your configuration:");
   log(`  Worker: ${workerName}`);
   log(`  URL: ${workerUrl}`);
+  if (customDomain) {
+    log(`  Custom domain: https://${customDomain}`);
+  }
   log("");
-  log("To add a custom domain, go to:");
-  log("  https://dash.cloudflare.com -> Workers & Pages -> your worker -> Settings -> Triggers");
-  log("");
+  if (!customDomain) {
+    log("To add a custom domain later:");
+    log("  Workers & Pages → your worker → Settings → Domains & Routes");
+    log("");
+  }
   log("To deploy in the future, run:");
   log(`  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers`);
   log("");

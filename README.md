@@ -90,6 +90,10 @@ export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
   exposeUploadApi(components.selfStaticHosting);
 ```
 
+**Note:** Run `npx convex dev` at least once after setup to push your schema and
+enable HTTP actions. If you see the error "This Convex deployment does not have
+HTTP actions enabled", it means the Convex backend hasn't been deployed yet.
+
 ### 3. Add deploy script to package.json
 
 ```json
@@ -137,6 +141,37 @@ npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers -
 # Deploy to dev (for testing)
 npx @get-convex/self-static-hosting upload --build
 ```
+
+### Using Non-Vite Bundlers
+
+The CLI's `--build` flag sets `VITE_CONVEX_URL` when running your build command.
+For bundlers that use different environment variable conventions, wrap your build
+script to pass through the value:
+
+**For Expo:**
+
+```json
+{
+  "scripts": {
+    "build": "EXPO_PUBLIC_CONVEX_URL=${VITE_CONVEX_URL:-$EXPO_PUBLIC_CONVEX_URL} npx expo export --platform web"
+  }
+}
+```
+
+**For Next.js:**
+
+```json
+{
+  "scripts": {
+    "build": "NEXT_PUBLIC_CONVEX_URL=${VITE_CONVEX_URL:-$NEXT_PUBLIC_CONVEX_URL} next build"
+  }
+}
+```
+
+The pattern `${VITE_CONVEX_URL:-$VAR}` uses `VITE_CONVEX_URL` if set (by the CLI),
+otherwise falls back to your bundler-specific variable. This allows the CLI's
+`--build` flag to work correctly while keeping your standalone `npm run build`
+functional.
 
 ## Deployment
 
