@@ -71,8 +71,8 @@ export declare function exposeUploadApi(component: ComponentApi): {
      * Automatically cleans up old storage files when replacing.
      */
     recordAsset: import("convex/server").RegisteredMutation<"internal", {
-        storageId: string;
         path: string;
+        storageId: string;
         contentType: string;
         deploymentId: string;
     }, Promise<null>>;
