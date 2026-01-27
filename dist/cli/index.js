@@ -5,8 +5,8 @@
  *
  * Commands:
  *   deploy              One-shot deployment (Convex backend + static files)
- *   upload              Upload static files to Convex or Cloudflare Pages
- *   setup-cloudflare    Interactive Cloudflare CDN setup
+ *   upload              Upload static files to Convex or Cloudflare Workers
+ *   setup-cloudflare    Interactive Cloudflare setup wizard
  *   init                Print setup instructions
  */
 const command = process.argv[2];
@@ -55,16 +55,17 @@ Usage:
 Commands:
   setup               Interactive setup wizard (creates files, configures deployment)
   deploy              One-shot deployment (Convex backend + static files)
-  upload              Upload static files to Convex storage or Cloudflare Pages
-  setup-cloudflare    Cloudflare CDN setup wizard (for advanced users)
-  init                Print manual setup instructions
+<<<<<<< HEAD
+  upload              Upload static files to Convex storage or Cloudflare Workers
+  setup-cloudflare    Interactive Cloudflare setup wizard
+  init                Print setup instructions for integration
 
 Examples:
   # Interactive setup (recommended for first-time users)
   npx @get-convex/self-static-hosting setup
 
-  # One-shot deployment to Cloudflare Pages
-  npx @get-convex/self-static-hosting deploy --cloudflare-pages --pages-project my-app
+  # One-shot deployment to Cloudflare Workers
+  npx @get-convex/self-static-hosting deploy --cloudflare-workers --worker-name my-app
 
   # One-shot deployment to Convex storage
   npx @get-convex/self-static-hosting deploy

@@ -8,7 +8,7 @@
  * This command:
  * 1. Builds the frontend with the correct VITE_CONVEX_URL
  * 2. Deploys the Convex backend (npx convex deploy)
- * 3. Deploys static files to Cloudflare Pages or Convex storage
+ * 3. Deploys static files to Cloudflare Workers or Convex storage
  *
  * The goal is to minimize the inconsistency window between backend and frontend.
  */

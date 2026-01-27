@@ -4,8 +4,8 @@
  *
  * Commands:
  *   deploy              One-shot deployment (Convex backend + static files)
- *   upload              Upload static files to Convex or Cloudflare Pages
- *   setup-cloudflare    Interactive Cloudflare CDN setup
+ *   upload              Upload static files to Convex or Cloudflare Workers
+ *   setup-cloudflare    Interactive Cloudflare setup wizard
  *   init                Print setup instructions
  */
 declare const command: string;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI tool to upload static files to Convex storage or Cloudflare Pages.
+ * CLI tool to upload static files to Convex storage or Cloudflare Workers.
  *
  * Usage:
  *   npx @get-convex/self-static-hosting upload [options]
@@ -10,8 +10,8 @@
  *   --component <name>       Convex component with upload functions (default: staticHosting)
  *   --prod                   Deploy to production deployment
  *   --domain <domain>        Domain for Cloudflare cache purge (auto-detects zone ID)
- *   --cloudflare-pages       Deploy to Cloudflare Pages instead of Convex storage
- *   --pages-project <name>   Cloudflare Pages project name (required with --cloudflare-pages)
+ *   --cloudflare-workers     Deploy to Cloudflare Workers instead of Convex storage
+ *   --worker-name <name>     Worker name for deployment (required with --cloudflare-workers)
  *   --help                   Show help
  */
 import { readFileSync, readdirSync, existsSync } from "fs";
@@ -19,7 +19,7 @@ import { join, relative, extname, resolve } from "path";
 import { randomUUID } from "crypto";
 import { execSync, spawnSync } from "child_process";
 import { homedir } from "os";
-import { deployToCloudflarePages } from "./upload-cloudflare-pages.js";
+import { deployToCloudflareWorkers } from "./upload-cloudflare-workers.js";
 // MIME type mapping
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -53,8 +53,8 @@ function parseArgs(args) {
         prod: false, // Default to dev, use --prod for production
         build: false,
         help: false,
-        cloudflarePages: false,
-        pagesProject: null,
+        cloudflareWorkers: false,
+        workerName: null,
     };
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -79,16 +79,16 @@ function parseArgs(args) {
         else if (arg === "--build" || arg === "-b") {
             result.build = true;
         }
-        else if (arg === "--cloudflare-pages") {
-            result.cloudflarePages = true;
+        else if (arg === "--cloudflare-workers") {
+            result.cloudflareWorkers = true;
         }
-        else if (arg === "--pages-project") {
-            result.pagesProject = args[++i] || null;
+        else if (arg === "--worker-name") {
+            result.workerName = args[++i] || null;
         }
     }
-    // Also check environment variable for pages project
-    if (!result.pagesProject && process.env.CLOUDFLARE_PAGES_PROJECT) {
-        result.pagesProject = process.env.CLOUDFLARE_PAGES_PROJECT;
+    // Also check environment variable for worker name
+    if (!result.workerName && process.env.CLOUDFLARE_WORKER_NAME) {
+        result.workerName = process.env.CLOUDFLARE_WORKER_NAME;
     }
     return result;
 }
@@ -96,7 +96,7 @@ function showHelp() {
     console.log(`
 Usage: npx @get-convex/self-static-hosting upload [options]
 
-Upload static files from a dist directory to Convex storage or Cloudflare Pages.
+Upload static files from a dist directory to Convex storage or Cloudflare Workers.
 
 Options:
   -d, --dist <path>           Path to dist directory (default: ./dist)
@@ -106,26 +106,26 @@ Options:
       --domain <name>         Domain for Cloudflare cache purge (e.g., example.com)
   -h, --help                  Show this help message
 
-Cloudflare Pages (alternative to Convex storage):
-      --cloudflare-pages      Deploy to Cloudflare Pages instead of Convex storage
-      --pages-project <name>  Cloudflare Pages project name (auto-created if needed)
-                              Can also be set via CLOUDFLARE_PAGES_PROJECT env var
+Cloudflare Workers (alternative to Convex storage):
+      --cloudflare-workers    Deploy to Cloudflare Workers (Static Assets) instead of Convex storage
+      --worker-name <name>    Worker name for deployment (auto-created if needed)
+                              Can also be set via CLOUDFLARE_WORKER_NAME env var
 
-  Cloudflare Pages serves files directly from edge, eliminating the need for
-  Convex storage for static assets. Your Convex backend is still used for
-  API routes and live reload notifications.
+  Cloudflare Workers with Static Assets serves files directly from edge,
+  eliminating the need for Convex storage for static assets. Your Convex
+  backend is still used for API routes and live reload notifications.
 
   Example:
-    npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages --pages-project my-app
+    npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
 
 Cloudflare Cache Purging (for Convex storage mode):
   The CLI will automatically purge Cloudflare cache if credentials are available.
-  
+
   Option 1: Use --domain flag (auto-detects zone ID)
     Requires wrangler login or CLOUDFLARE_API_TOKEN env var
-    
+
     npx @get-convex/self-static-hosting upload --domain mysite.com
-  
+
   Option 2: Set environment variables (for CI/CD)
     export CLOUDFLARE_ZONE_ID="your-zone-id"
     export CLOUDFLARE_API_TOKEN="your-api-token"
@@ -137,9 +137,9 @@ Examples:
   npx @get-convex/self-static-hosting upload --dist ./build
   npx @get-convex/self-static-hosting upload --domain mysite.com
 
-  # Upload to Cloudflare Pages
-  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project my-app
-  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-pages --pages-project my-app
+  # Upload to Cloudflare Workers
+  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name my-app
+  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
 `);
 }
 // Global flag for production mode
@@ -320,30 +320,30 @@ async function main() {
     }
     const distDir = resolve(args.dist);
     const componentName = args.component;
-    // Handle Cloudflare Pages deployment
-    if (args.cloudflarePages) {
-        if (!args.pagesProject) {
-            console.error("Error: --pages-project is required when using --cloudflare-pages");
+    // Handle Cloudflare Workers deployment
+    if (args.cloudflareWorkers) {
+        if (!args.workerName) {
+            console.error("Error: --worker-name is required when using --cloudflare-workers");
             console.error("");
             console.error("Usage:");
-            console.error("  npx @get-convex/self-static-hosting upload --cloudflare-pages --pages-project my-app");
+            console.error("  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name my-app");
             console.error("");
-            console.error("Or set the CLOUDFLARE_PAGES_PROJECT environment variable:");
-            console.error("  export CLOUDFLARE_PAGES_PROJECT=my-app");
+            console.error("Or set the CLOUDFLARE_WORKER_NAME environment variable:");
+            console.error("  export CLOUDFLARE_WORKER_NAME=my-app");
             process.exit(1);
         }
-        const result = await deployToCloudflarePages({
+        const result = await deployToCloudflareWorkers({
             distDir,
-            projectName: args.pagesProject,
+            workerName: args.workerName,
             convexComponent: componentName,
             prod: useProd,
         });
         if (!result.success) {
-            console.error(`❌ ${result.error}`);
+            console.error(`${result.error}`);
             process.exit(1);
         }
         console.log("");
-        console.log("✨ Cloudflare Pages deployment complete!");
+        console.log("Cloudflare Workers deployment complete!");
         if (result.url) {
             console.log("");
             console.log(`Your app is now available at: ${result.url}`);
