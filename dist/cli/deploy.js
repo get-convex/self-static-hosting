@@ -8,21 +8,18 @@
  * This command:
  * 1. Builds the frontend with the correct VITE_CONVEX_URL
  * 2. Deploys the Convex backend (npx convex deploy)
- * 3. Deploys static files to Cloudflare Workers or Convex storage
+ * 3. Deploys static files to Convex storage
  *
  * The goal is to minimize the inconsistency window between backend and frontend.
  */
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { execSync, spawnSync } from "child_process";
-import { deployToCloudflareWorkers } from "./upload-cloudflare-workers.js";
 function parseArgs(args) {
     const result = {
         dist: "./dist",
         component: "staticHosting",
         help: false,
-        cloudflareWorkers: false,
-        workerName: null,
         skipBuild: false,
         skipConvex: false,
     };
@@ -37,23 +34,12 @@ function parseArgs(args) {
         else if (arg === "--component" || arg === "-c") {
             result.component = args[++i] || result.component;
         }
-        else if (arg === "--cloudflare-workers") {
-            result.cloudflareWorkers = true;
-        }
-        else if (arg === "--worker-name") {
-            result.workerName = args[++i] || null;
-        }
         else if (arg === "--skip-build") {
             result.skipBuild = true;
         }
         else if (arg === "--skip-convex") {
             result.skipConvex = true;
         }
-    }
-    // Check environment variables
-    if (!result.workerName && process.env.CLOUDFLARE_WORKER_NAME) {
-        result.workerName = process.env.CLOUDFLARE_WORKER_NAME;
-        result.cloudflareWorkers = true;
     }
     return result;
 }
@@ -67,32 +53,24 @@ Minimizes the inconsistency window between backend and frontend updates.
 Options:
   -d, --dist <path>           Path to dist directory (default: ./dist)
   -c, --component <name>      Convex component name (default: staticHosting)
-      --cloudflare-workers    Deploy static files to Cloudflare Workers (Static Assets)
-      --worker-name <name>    Worker name for deployment
       --skip-build            Skip the build step (use existing dist)
       --skip-convex           Skip Convex backend deployment
   -h, --help                  Show this help message
 
-Environment Variables:
-  CLOUDFLARE_WORKER_NAME      Default worker name (enables --cloudflare-workers)
-
 Deployment Flow:
   1. Build frontend with production VITE_CONVEX_URL
   2. Deploy Convex backend (npx convex deploy)
-  3. Deploy static files to CF Workers or Convex storage
+  3. Deploy static files to Convex storage
 
 Examples:
-  # Full deployment to Cloudflare Workers
-  npx @get-convex/self-static-hosting deploy --cloudflare-workers --worker-name my-app
-
-  # Full deployment to Convex storage
+  # Full deployment
   npx @get-convex/self-static-hosting deploy
 
   # Skip build (if already built)
-  npx @get-convex/self-static-hosting deploy --skip-build --cloudflare-workers
+  npx @get-convex/self-static-hosting deploy --skip-build
 
   # Only deploy static files (skip Convex backend)
-  npx @get-convex/self-static-hosting deploy --skip-convex --cloudflare-workers
+  npx @get-convex/self-static-hosting deploy --skip-convex
 `);
 }
 /**
@@ -236,7 +214,7 @@ async function main() {
     }
     // Step 4: Deploy static files
     console.log("");
-    console.log("Step 4: Deploying static files...");
+    console.log("Step 4: Deploying static files to Convex storage...");
     const distDir = resolve(args.dist);
     if (!existsSync(distDir)) {
         console.error("");
@@ -244,39 +222,11 @@ async function main() {
         console.error("   Run build first or check --dist path");
         process.exit(1);
     }
-    let staticDeploySuccess = false;
-    if (args.cloudflareWorkers) {
-        if (!args.workerName) {
-            console.error("");
-            console.error("--worker-name is required when using --cloudflare-workers");
-            console.error("   Or set CLOUDFLARE_WORKER_NAME environment variable");
-            process.exit(1);
-        }
-        console.log(`   Target: Cloudflare Workers (${args.workerName})`);
-        console.log("");
-        const result = await deployToCloudflareWorkers({
-            distDir,
-            workerName: args.workerName,
-            convexComponent: args.component,
-            prod: true,
-        });
-        if (!result.success) {
-            console.error("");
-            console.error(`${result.error}`);
-            process.exit(1);
-        }
-        staticDeploySuccess = true;
-        console.log("");
-        console.log(`   Deployed to ${result.url}`);
-    }
-    else {
-        console.log("   Target: Convex storage");
-        staticDeploySuccess = await uploadToConvexStorage(distDir, args.component);
-        if (!staticDeploySuccess) {
-            console.error("");
-            console.error("❌ Static file upload failed");
-            process.exit(1);
-        }
+    const staticDeploySuccess = await uploadToConvexStorage(distDir, args.component);
+    if (!staticDeploySuccess) {
+        console.error("");
+        console.error("❌ Static file upload failed");
+        process.exit(1);
     }
     // Done!
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -284,25 +234,19 @@ async function main() {
     console.log("═══════════════════════════════════════════════════════════");
     console.log(`✨ Deployment complete! (${duration}s)`);
     console.log("");
-    // Show URLs
-    if (args.cloudflareWorkers && args.workerName) {
-        console.log(`Frontend: https://${args.workerName}.workers.dev`);
+    // Show Convex site URL
+    try {
+        const result = execSync("npx convex dashboard --prod --no-open", {
+            stdio: "pipe",
+            encoding: "utf-8",
+        });
+        const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
+        if (match) {
+            console.log(`Frontend: https://${match[1]}.convex.site`);
+        }
     }
-    else {
-        // Get Convex site URL
-        try {
-            const result = execSync("npx convex dashboard --prod --no-open", {
-                stdio: "pipe",
-                encoding: "utf-8",
-            });
-            const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
-            if (match) {
-                console.log(`Frontend: https://${match[1]}.convex.site`);
-            }
-        }
-        catch {
-            // Ignore
-        }
+    catch {
+        // Ignore
     }
     console.log("");
 }

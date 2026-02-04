@@ -165,38 +165,20 @@ async function main(): Promise<void> {
     success("Created convex/ directory");
   }
 
-  // Ask which mode
-  console.log("How do you want to host your static files?\n");
-  console.log("  1. Convex Storage (simple, no external dependencies)");
-  console.log("  2. Cloudflare (edge performance, custom domains)\n");
-
-  const choice = await prompt("Choose [1/2]: ");
-  const useCloudflare = choice === "2";
-
-  console.log("\nCreating files...\n");
+  console.log("Creating files...\n");
 
   // Create the Convex files
   createConvexConfig();
   createStaticHostingFile();
-
-  if (!useCloudflare) {
-    createHttpFile();
-  }
-
+  createHttpFile();
   updatePackageJson();
 
   // Next steps
   console.log("\n✨ Setup complete!\n");
   console.log("Next steps:\n");
   console.log("  1. npx convex dev          # Generate types");
-
-  if (useCloudflare) {
-    console.log("  2. npx @get-convex/self-static-hosting setup-cloudflare");
-    console.log("                             # Configure Cloudflare\n");
-  } else {
-    console.log("  2. npm run deploy          # Deploy everything\n");
-    console.log("Your app will be at: https://<deployment>.convex.site");
-  }
+  console.log("  2. npm run deploy          # Deploy everything\n");
+  console.log("Your app will be at: https://<deployment>.convex.site\n");
 
   rl.close();
 }

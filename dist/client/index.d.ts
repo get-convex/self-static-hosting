@@ -71,8 +71,8 @@ export declare function exposeUploadApi(component: ComponentApi): {
      * Automatically cleans up old storage files when replacing.
      */
     recordAsset: import("convex/server").RegisteredMutation<"internal", {
-        path: string;
         storageId: string;
+        path: string;
         contentType: string;
         deploymentId: string;
     }, Promise<null>>;
@@ -143,38 +143,4 @@ export declare function exposeDeploymentQuery(component: ComponentApi): {
  * ```
  */
 export declare function getConvexUrl(): string;
-/**
- * Expose an action to purge Cloudflare cache after deployment.
- * This is optional - only needed if you're using Cloudflare as a CDN.
- *
- * @example
- * ```typescript
- * // In your convex/staticHosting.ts
- * import { exposeCachePurgeAction } from "@get-convex/self-static-hosting";
- *
- * export const { purgeCloudflareCache } = exposeCachePurgeAction();
- * ```
- *
- * Then call after deployment:
- * ```bash
- * npx convex run staticHosting:purgeCloudflareCache \
- *   '{"zoneId": "your-zone-id", "apiToken": "your-api-token", "purgeAll": true}'
- * ```
- */
-export declare function exposeCachePurgeAction(): {
-    /**
-     * Purge Cloudflare cache after a deployment.
-     * Can purge all files or specific URLs.
-     */
-    purgeCloudflareCache: import("convex/server").RegisteredAction<"internal", {
-        purgeAll?: boolean | undefined;
-        files?: string[] | undefined;
-        zoneId: string;
-        apiToken: string;
-    }, Promise<{
-        success: boolean;
-        purgedAll: boolean;
-        purgedFiles: number;
-    }>>;
-};
 //# sourceMappingURL=index.d.ts.map

@@ -5,8 +5,7 @@
  *
  * Commands:
  *   deploy              One-shot deployment (Convex backend + static files)
- *   upload              Upload static files to Convex or Cloudflare Workers
- *   setup-cloudflare    Interactive Cloudflare setup wizard
+ *   upload              Upload static files to Convex storage
  *   init                Print setup instructions
  */
 const command = process.argv[2];
@@ -24,11 +23,6 @@ async function main() {
             // Pass remaining args to upload command
             process.argv.splice(2, 1);
             await import("./upload.js");
-            break;
-        case "setup-cloudflare":
-        case "setup-cf":
-        case "cloudflare":
-            await import("./setup-cloudflare.js");
             break;
         case "init":
             printInitInstructions();
@@ -55,19 +49,14 @@ Usage:
 Commands:
   setup               Interactive setup wizard (creates files, configures deployment)
   deploy              One-shot deployment (Convex backend + static files)
-<<<<<<< HEAD
-  upload              Upload static files to Convex storage or Cloudflare Workers
-  setup-cloudflare    Interactive Cloudflare setup wizard
+  upload              Upload static files to Convex storage
   init                Print setup instructions for integration
 
 Examples:
   # Interactive setup (recommended for first-time users)
   npx @get-convex/self-static-hosting setup
 
-  # One-shot deployment to Cloudflare Workers
-  npx @get-convex/self-static-hosting deploy --cloudflare-workers --worker-name my-app
-
-  # One-shot deployment to Convex storage
+  # One-shot deployment
   npx @get-convex/self-static-hosting deploy
 
   # Upload only (no Convex backend deploy)
@@ -89,12 +78,7 @@ For LLMs:
 Manual Setup:
   See README.md at https://github.com/get-convex/self-static-hosting#readme
 
-Three deployment modes available:
-  1. Cloudflare Pages (Recommended) - Edge performance, no storage costs
-  2. Convex Storage - Simpler, no external dependencies
-  3. Convex Storage + Cloudflare CDN - Custom domain with caching
-
-The setup wizard will guide you through choosing and configuring your preferred mode.
+This component hosts your static files in Convex storage and serves them via HTTP actions.
 `);
 }
 main().catch((err) => {

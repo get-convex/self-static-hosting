@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI tool to upload static files to Convex storage or Cloudflare Workers.
+ * CLI tool to upload static files to Convex storage.
  *
  * Usage:
  *   npx @get-convex/self-static-hosting upload [options]
@@ -9,17 +9,12 @@
  *   --dist <path>            Path to dist directory (default: ./dist)
  *   --component <name>       Convex component with upload functions (default: staticHosting)
  *   --prod                   Deploy to production deployment
- *   --domain <domain>        Domain for Cloudflare cache purge (auto-detects zone ID)
- *   --cloudflare-workers     Deploy to Cloudflare Workers instead of Convex storage
- *   --worker-name <name>     Worker name for deployment (required with --cloudflare-workers)
  *   --help                   Show help
  */
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join, relative, extname, resolve } from "path";
 import { randomUUID } from "crypto";
 import { execSync, spawnSync } from "child_process";
-import { homedir } from "os";
-import { deployToCloudflareWorkers } from "./upload-cloudflare-workers.js";
 // MIME type mapping
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -96,50 +91,20 @@ function showHelp() {
     console.log(`
 Usage: npx @get-convex/self-static-hosting upload [options]
 
-Upload static files from a dist directory to Convex storage or Cloudflare Workers.
+Upload static files from a dist directory to Convex storage.
 
 Options:
   -d, --dist <path>           Path to dist directory (default: ./dist)
   -c, --component <name>      Convex component with upload functions (default: staticHosting)
       --prod                  Deploy to production deployment
   -b, --build                 Run 'npm run build' with correct VITE_CONVEX_URL before uploading
-      --domain <name>         Domain for Cloudflare cache purge (e.g., example.com)
   -h, --help                  Show this help message
 
-Cloudflare Workers (alternative to Convex storage):
-      --cloudflare-workers    Deploy to Cloudflare Workers (Static Assets) instead of Convex storage
-      --worker-name <name>    Worker name for deployment (auto-created if needed)
-                              Can also be set via CLOUDFLARE_WORKER_NAME env var
-
-  Cloudflare Workers with Static Assets serves files directly from edge,
-  eliminating the need for Convex storage for static assets. Your Convex
-  backend is still used for API routes and live reload notifications.
-
-  Example:
-    npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
-
-Cloudflare Cache Purging (for Convex storage mode):
-  The CLI will automatically purge Cloudflare cache if credentials are available.
-
-  Option 1: Use --domain flag (auto-detects zone ID)
-    Requires wrangler login or CLOUDFLARE_API_TOKEN env var
-
-    npx @get-convex/self-static-hosting upload --domain mysite.com
-
-  Option 2: Set environment variables (for CI/CD)
-    export CLOUDFLARE_ZONE_ID="your-zone-id"
-    export CLOUDFLARE_API_TOKEN="your-api-token"
-    npx @get-convex/self-static-hosting upload
-
 Examples:
-  # Upload to Convex storage (default)
+  # Upload to Convex storage
   npx @get-convex/self-static-hosting upload
-  npx @get-convex/self-static-hosting upload --dist ./build
-  npx @get-convex/self-static-hosting upload --domain mysite.com
-
-  # Upload to Cloudflare Workers
-  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name my-app
-  npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
+  npx @get-convex/self-static-hosting upload --dist ./build --prod
+  npx @get-convex/self-static-hosting upload --build --prod
 `);
 }
 // Global flag for production mode
@@ -177,89 +142,6 @@ function collectFiles(dir, baseDir) {
         }
     }
     return files;
-}
-/**
- * Try to get Cloudflare API token from various sources:
- * 1. CLOUDFLARE_API_TOKEN environment variable
- * 2. Wrangler config file (~/.wrangler/config/default.toml)
- */
-function getCloudflareApiToken() {
-    // Check environment variable first
-    if (process.env.CLOUDFLARE_API_TOKEN) {
-        return process.env.CLOUDFLARE_API_TOKEN;
-    }
-    // Try to read from wrangler config
-    const wranglerConfigPath = join(homedir(), ".wrangler", "config", "default.toml");
-    if (existsSync(wranglerConfigPath)) {
-        try {
-            const config = readFileSync(wranglerConfigPath, "utf-8");
-            // Look for oauth_token in the TOML file
-            const tokenMatch = config.match(/oauth_token\s*=\s*"([^"]+)"/);
-            if (tokenMatch) {
-                return tokenMatch[1];
-            }
-        }
-        catch {
-            // Ignore read errors
-        }
-    }
-    return null;
-}
-/**
- * Look up Cloudflare zone ID for a domain using the API
- */
-async function getCloudflareZoneId(domain, apiToken) {
-    try {
-        const response = await fetch(`https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(domain)}`, {
-            headers: {
-                Authorization: `Bearer ${apiToken}`,
-                "Content-Type": "application/json",
-            },
-        });
-        const data = (await response.json());
-        if (data.success && data.result.length > 0) {
-            return data.result[0].id;
-        }
-        // Try parent domain if subdomain didn't match
-        const parts = domain.split(".");
-        if (parts.length > 2) {
-            const parentDomain = parts.slice(-2).join(".");
-            const parentResponse = await fetch(`https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(parentDomain)}`, {
-                headers: {
-                    Authorization: `Bearer ${apiToken}`,
-                    "Content-Type": "application/json",
-                },
-            });
-            const parentData = (await parentResponse.json());
-            if (parentData.success && parentData.result.length > 0) {
-                return parentData.result[0].id;
-            }
-        }
-        return null;
-    }
-    catch {
-        return null;
-    }
-}
-/**
- * Purge Cloudflare cache using the API directly
- */
-async function purgeCloudflareCache(zoneId, apiToken) {
-    try {
-        const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${apiToken}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ purge_everything: true }),
-        });
-        const data = (await response.json());
-        return data.success;
-    }
-    catch {
-        return false;
-    }
 }
 async function main() {
     const args = parseArgs(process.argv.slice(2));
@@ -320,37 +202,7 @@ async function main() {
     }
     const distDir = resolve(args.dist);
     const componentName = args.component;
-    // Handle Cloudflare Workers deployment
-    if (args.cloudflareWorkers) {
-        if (!args.workerName) {
-            console.error("Error: --worker-name is required when using --cloudflare-workers");
-            console.error("");
-            console.error("Usage:");
-            console.error("  npx @get-convex/self-static-hosting upload --cloudflare-workers --worker-name my-app");
-            console.error("");
-            console.error("Or set the CLOUDFLARE_WORKER_NAME environment variable:");
-            console.error("  export CLOUDFLARE_WORKER_NAME=my-app");
-            process.exit(1);
-        }
-        const result = await deployToCloudflareWorkers({
-            distDir,
-            workerName: args.workerName,
-            convexComponent: componentName,
-            prod: useProd,
-        });
-        if (!result.success) {
-            console.error(`${result.error}`);
-            process.exit(1);
-        }
-        console.log("");
-        console.log("Cloudflare Workers deployment complete!");
-        if (result.url) {
-            console.log("");
-            console.log(`Your app is now available at: ${result.url}`);
-        }
-        return;
-    }
-    // Continue with Convex storage deployment...
+    // Convex storage deployment
     if (!existsSync(distDir)) {
         console.error(`Error: dist directory not found: ${distDir}`);
         console.error("Run your build command first (e.g., 'npm run build' or add --build flag)");
@@ -394,66 +246,12 @@ async function main() {
     if (deleted > 0) {
         console.log(`Cleaned up ${deleted} old file(s) from previous deployments`);
     }
-    // Cloudflare cache purging
-    let cachePurged = false;
-    const cloudflareZoneId = process.env.CLOUDFLARE_ZONE_ID;
-    const cloudflareApiToken = getCloudflareApiToken();
-    // Option 1: Use --domain flag with auto-detected credentials
-    if (args.domain && cloudflareApiToken) {
-        console.log("");
-        console.log(`☁️  Purging Cloudflare cache for ${args.domain}...`);
-        const zoneId = await getCloudflareZoneId(args.domain, cloudflareApiToken);
-        if (zoneId) {
-            const success = await purgeCloudflareCache(zoneId, cloudflareApiToken);
-            if (success) {
-                console.log("   Cache purged successfully");
-                cachePurged = true;
-            }
-            else {
-                console.warn("   Warning: Cache purge failed");
-            }
-        }
-        else {
-            console.warn(`   Warning: Could not find zone for domain ${args.domain}`);
-            console.warn("   Make sure the domain is in your Cloudflare account");
-        }
-    }
-    // Option 2: Use explicit env vars (for CI/CD)
-    else if (cloudflareZoneId && cloudflareApiToken && !cachePurged) {
-        console.log("");
-        console.log("☁️  Purging Cloudflare cache...");
-        try {
-            // Use Convex function (useful for CI/CD where you might want logging)
-            convexRun(`${componentName}:purgeCloudflareCache`, {
-                zoneId: cloudflareZoneId,
-                apiToken: cloudflareApiToken,
-                purgeAll: true,
-            });
-            console.log("   Cache purged successfully");
-            cachePurged = true;
-        }
-        catch {
-            // Fall back to direct API call
-            const success = await purgeCloudflareCache(cloudflareZoneId, cloudflareApiToken);
-            if (success) {
-                console.log("   Cache purged successfully (direct API)");
-                cachePurged = true;
-            }
-            else {
-                console.warn("   Warning: Cloudflare cache purge failed");
-            }
-        }
-    }
     console.log("");
     console.log("✨ Upload complete!");
     // Show the deployment URL
     let siteUrl = null;
-    // If custom domain was provided, use that
-    if (args.domain) {
-        siteUrl = `https://${args.domain}`;
-    }
-    else if (useProd) {
-        // For production without custom domain, get URL from convex dashboard --prod
+    if (useProd) {
+        // For production, get URL from convex dashboard --prod
         try {
             const result = execSync("npx convex dashboard --prod --no-open", {
                 stdio: "pipe",
@@ -481,11 +279,6 @@ async function main() {
     if (siteUrl) {
         console.log("");
         console.log(`Your app is now available at: ${siteUrl}`);
-    }
-    if (!cachePurged && !args.domain) {
-        console.log("");
-        console.log("💡 Tip: Add --domain yoursite.com to auto-purge Cloudflare cache");
-        console.log("   (requires 'npx wrangler login' or CLOUDFLARE_API_TOKEN)");
     }
 }
 main().catch((error) => {
