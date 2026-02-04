@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2-alpha.0
+
+removed cloudflare for now.
+
 ## 0.1.1
 
 - Setup wizard now configures custom domains for Cloudflare Workers
