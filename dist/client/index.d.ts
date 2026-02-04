@@ -19,7 +19,7 @@ export declare function getMimeType(path: string): string;
  * ```typescript
  * // In your convex/http.ts
  * import { httpRouter } from "convex/server";
- * import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+ * import { registerStaticRoutes } from "@convex-dev/self-static-hosting";
  * import { components } from "./_generated/api";
  *
  * const http = httpRouter();
@@ -48,7 +48,7 @@ export declare function registerStaticRoutes(http: HttpRouter, component: Compon
  * @example
  * ```typescript
  * // In your convex/staticHosting.ts
- * import { exposeUploadApi } from "@get-convex/self-static-hosting";
+ * import { exposeUploadApi } from "@convex-dev/self-static-hosting";
  * import { components } from "./_generated/api";
  *
  * export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
@@ -107,7 +107,7 @@ export declare function exposeUploadApi(component: ComponentApi): {
  * @example
  * ```typescript
  * // In your convex/staticHosting.ts
- * import { exposeUploadApi, exposeDeploymentQuery } from "@get-convex/self-static-hosting";
+ * import { exposeUploadApi, exposeDeploymentQuery } from "@convex-dev/self-static-hosting";
  * import { components } from "./_generated/api";
  *
  * export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
@@ -136,7 +136,7 @@ export declare function exposeDeploymentQuery(component: ComponentApi): {
  * @example
  * ```typescript
  * // In your React app's main.tsx
- * import { getConvexUrl } from "@get-convex/self-static-hosting";
+ * import { getConvexUrl } from "@convex-dev/self-static-hosting";
  *
  * const convexUrl = import.meta.env.VITE_CONVEX_URL ?? getConvexUrl();
  * const convex = new ConvexReactClient(convexUrl);

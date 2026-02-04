@@ -51,7 +51,7 @@ function printHelp() {
 Convex Self Static Hosting CLI
 
 Usage:
-  npx @get-convex/self-static-hosting <command> [options]
+  npx @convex-dev/self-static-hosting <command> [options]
 
 Commands:
   setup               Interactive setup wizard (creates files, configures deployment)
@@ -61,13 +61,13 @@ Commands:
 
 Examples:
   # Interactive setup (recommended for first-time users)
-  npx @get-convex/self-static-hosting setup
+  npx @convex-dev/self-static-hosting setup
 
   # One-shot deployment
-  npx @get-convex/self-static-hosting deploy
+  npx @convex-dev/self-static-hosting deploy
 
   # Upload only (no Convex backend deploy)
-  npx @get-convex/self-static-hosting upload --build --prod
+  npx @convex-dev/self-static-hosting upload --build --prod
 
 Run '<command> --help' for more information on a specific command.
 `);
@@ -78,7 +78,7 @@ function printInitInstructions() {
 📦 Convex Self Static Hosting
 
 Quick Start:
-  npx @get-convex/self-static-hosting setup    # Interactive setup wizard
+  npx @convex-dev/self-static-hosting setup    # Interactive setup wizard
 
 For LLMs:
   Read INTEGRATION.md in this package for complete integration instructions

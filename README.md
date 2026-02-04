@@ -1,6 +1,6 @@
 # Convex Self Static Hosting
 
-[![npm version](https://badge.fury.io/js/@get-convex%2Fself-static-hosting.svg)](https://badge.fury.io/js/@get-convex/self-static-hosting)
+[![npm version](https://badge.fury.io/js/@get-convex%2Fself-static-hosting.svg)](https://badge.fury.io/js/@convex-dev/self-static-hosting)
 
 A Convex component that enables self-hosting static React/Vite apps using Convex
 HTTP actions and file storage. No external hosting provider required!
@@ -10,8 +10,8 @@ HTTP actions and file storage. No external hosting provider required!
 ### Automated Setup (Recommended)
 
 ```bash
-npm install @get-convex/self-static-hosting
-npx @get-convex/self-static-hosting setup
+npm install @convex-dev/self-static-hosting
+npx @convex-dev/self-static-hosting setup
 ```
 
 The interactive wizard will:
@@ -68,14 +68,14 @@ https://github.com/user-attachments/assets/5eaf781f-87da-4292-9f96-38070c86cd39
 ### 1. Install
 
 ```bash
-npm install @get-convex/self-static-hosting
+npm install @convex-dev/self-static-hosting
 ```
 
 ### 2. Add to your `convex/convex.config.ts`:
 
 ```ts
 import { defineApp } from "convex/server";
-import selfStaticHosting from "@get-convex/self-static-hosting/convex.config.js";
+import selfStaticHosting from "@convex-dev/self-static-hosting/convex.config.js";
 
 const app = defineApp();
 app.use(selfStaticHosting);
@@ -91,7 +91,7 @@ Create or update `convex/http.ts` to serve static files:
 
 ```ts
 import { httpRouter } from "convex/server";
-import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+import { registerStaticRoutes } from "@convex-dev/self-static-hosting";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
@@ -107,7 +107,7 @@ export default http;
 Create a file like `convex/staticHosting.ts`:
 
 ```ts
-import { exposeUploadApi } from "@get-convex/self-static-hosting";
+import { exposeUploadApi } from "@convex-dev/self-static-hosting";
 import { components } from "./_generated/api";
 
 // These are INTERNAL functions - only callable via `npx convex run`
@@ -126,7 +126,7 @@ HTTP actions enabled", it means the Convex backend hasn't been deployed yet.
 {
   "scripts": {
     "build": "vite build",
-    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod"
+    "deploy:static": "npx @convex-dev/self-static-hosting upload --build --prod"
   }
 }
 ```
@@ -138,7 +138,7 @@ that would use the dev URL from `.env.local`.
 **CLI Options:**
 
 ```bash
-npx @get-convex/self-static-hosting upload [options]
+npx @convex-dev/self-static-hosting upload [options]
 
 Options:
   -d, --dist <path>           Path to dist directory (default: ./dist)
@@ -156,16 +156,16 @@ Options:
 
 ```bash
 # Deploy to production with automatic build (Convex storage)
-npx @get-convex/self-static-hosting upload --build --prod
+npx @convex-dev/self-static-hosting upload --build --prod
 
 # Deploy to production with custom domain (also purges Cloudflare cache)
-npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com
+npx @convex-dev/self-static-hosting upload --build --prod --domain mysite.com
 
 # Deploy to Cloudflare Workers instead
-npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
+npx @convex-dev/self-static-hosting upload --build --prod --cloudflare-workers --worker-name my-app
 
 # Deploy to dev (for testing)
-npx @get-convex/self-static-hosting upload --build
+npx @convex-dev/self-static-hosting upload --build
 ```
 
 ### Using Non-Vite Bundlers
@@ -211,10 +211,10 @@ npx convex login
 npx wrangler login  # if using Cloudflare Workers
 
 # Deploy everything to Cloudflare Workers
-npx @get-convex/self-static-hosting deploy --cloudflare-workers --worker-name my-app
+npx @convex-dev/self-static-hosting deploy --cloudflare-workers --worker-name my-app
 
 # Or deploy everything to Convex storage
-npx @get-convex/self-static-hosting deploy
+npx @convex-dev/self-static-hosting deploy
 ```
 
 The `deploy` command:
@@ -227,7 +227,7 @@ This minimizes the inconsistency window between backend and frontend updates.
 **Deploy command options:**
 
 ```bash
-npx @get-convex/self-static-hosting deploy [options]
+npx @convex-dev/self-static-hosting deploy [options]
 
 Options:
   -d, --dist <path>           Path to dist directory (default: ./dist)
@@ -244,7 +244,7 @@ Add to `package.json` for easy deployments:
 ```json
 {
   "scripts": {
-    "deploy": "npx @get-convex/self-static-hosting deploy --cloudflare-workers --worker-name my-app"
+    "deploy": "npx @convex-dev/self-static-hosting deploy --cloudflare-workers --worker-name my-app"
   }
 }
 ```
@@ -258,7 +258,7 @@ If you prefer more control, deploy separately:
 npx convex deploy
 
 # Deploy static files
-npx @get-convex/self-static-hosting upload --build --prod
+npx @convex-dev/self-static-hosting upload --build --prod
 ```
 
 Your app is now live at `https://your-deployment.convex.site`
@@ -268,7 +268,7 @@ If you have a custom domain set up via Cloudflare, add `--domain`:
 ```json
 {
   "scripts": {
-    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com"
+    "deploy:static": "npx @convex-dev/self-static-hosting upload --build --prod --domain mysite.com"
   }
 }
 ```
@@ -303,7 +303,7 @@ needing Convex storage.
 ### Quick Setup
 
 ```bash
-npx @get-convex/self-static-hosting setup-cloudflare
+npx @convex-dev/self-static-hosting setup-cloudflare
 ```
 
 The wizard will ask you to choose between:
@@ -325,7 +325,7 @@ For Cloudflare Workers, the wizard will:
 
 2. Deploy to Cloudflare Workers:
    ```bash
-   npx @get-convex/self-static-hosting upload --build --prod \
+   npx @convex-dev/self-static-hosting upload --build --prod \
      --cloudflare-workers --worker-name my-app
    ```
 
@@ -333,7 +333,7 @@ For Cloudflare Workers, the wizard will:
    ```json
    {
      "scripts": {
-       "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --cloudflare-workers"
+       "deploy:static": "npx @convex-dev/self-static-hosting upload --build --prod --cloudflare-workers"
      }
    }
    ```
@@ -364,7 +364,7 @@ DDoS protection, and custom domains.
 ### Quick Setup
 
 ```bash
-npx @get-convex/self-static-hosting setup-cloudflare
+npx @convex-dev/self-static-hosting setup-cloudflare
 ```
 
 Select option 2 (Convex Storage + Cloudflare CDN). The wizard will:
@@ -398,7 +398,7 @@ so your API routes remain unaffected:
 ```ts
 // convex/http.ts
 import { httpRouter } from "convex/server";
-import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+import { registerStaticRoutes } from "@convex-dev/self-static-hosting";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
@@ -483,7 +483,7 @@ The CLI can automatically purge Cloudflare cache after deploying.
 npx wrangler login
 
 # Then deploy with your domain
-npx @get-convex/self-static-hosting upload --build --prod --domain mysite.com
+npx @convex-dev/self-static-hosting upload --build --prod --domain mysite.com
 ```
 
 The CLI will auto-detect your zone ID and purge the cache.
@@ -496,7 +496,7 @@ Otherwise, set them manually:
 ```bash
 export CLOUDFLARE_ZONE_ID="your-zone-id"
 export CLOUDFLARE_API_TOKEN="your-api-token"
-npx @get-convex/self-static-hosting upload --build --prod
+npx @convex-dev/self-static-hosting upload --build --prod
 ```
 
 To get these values:
@@ -510,7 +510,7 @@ To get these values:
 Expose the cache purge action in your `convex/staticHosting.ts`:
 
 ```ts
-import { exposeCachePurgeAction } from "@get-convex/self-static-hosting";
+import { exposeCachePurgeAction } from "@convex-dev/self-static-hosting";
 
 export const { purgeCloudflareCache } = exposeCachePurgeAction();
 ```
@@ -529,7 +529,7 @@ Connected clients can be notified when a new deployment is available:
 1. **Expose the deployment query**:
 
    ```ts
-   import { exposeDeploymentQuery } from "@get-convex/self-static-hosting";
+   import { exposeDeploymentQuery } from "@convex-dev/self-static-hosting";
    import { components } from "./_generated/api";
 
    export const { getCurrentDeployment } = exposeDeploymentQuery(
@@ -540,7 +540,7 @@ Connected clients can be notified when a new deployment is available:
 2. **Add the update banner to your app**:
 
    ```tsx
-   import { UpdateBanner } from "@get-convex/self-static-hosting/react";
+   import { UpdateBanner } from "@convex-dev/self-static-hosting/react";
    import { api } from "../convex/_generated/api";
 
    function App() {
@@ -560,7 +560,7 @@ Connected clients can be notified when a new deployment is available:
 Or use the hook for custom UI:
 
 ```tsx
-import { useDeploymentUpdates } from "@get-convex/self-static-hosting/react";
+import { useDeploymentUpdates } from "@convex-dev/self-static-hosting/react";
 
 const { updateAvailable, reload, dismiss } = useDeploymentUpdates(
   api.staticHosting.getCurrentDeployment,

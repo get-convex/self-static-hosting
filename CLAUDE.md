@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Convex component that enables self-hosting static React/Vite apps using Convex HTTP actions and file storage or Cloudflare Pages. Published as `@get-convex/self-static-hosting` on npm.
+A Convex component that enables self-hosting static React/Vite apps using Convex HTTP actions and file storage or Cloudflare Pages. Published as `@convex-dev/self-static-hosting` on npm.
 
 ## Commands
 
@@ -47,9 +47,9 @@ src/
 
 ### Package Exports
 
-- `@get-convex/self-static-hosting` - Client APIs (registerStaticRoutes, exposeUploadApi, etc.)
-- `@get-convex/self-static-hosting/react` - React components (UpdateBanner, useDeploymentUpdates)
-- `@get-convex/self-static-hosting/convex.config` - Component config for app.use()
+- `@convex-dev/self-static-hosting` - Client APIs (registerStaticRoutes, exposeUploadApi, etc.)
+- `@convex-dev/self-static-hosting/react` - React components (UpdateBanner, useDeploymentUpdates)
+- `@convex-dev/self-static-hosting/convex.config` - Component config for app.use()
 
 ### Three Deployment Modes
 

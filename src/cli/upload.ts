@@ -3,7 +3,7 @@
  * CLI tool to upload static files to Convex storage.
  *
  * Usage:
- *   npx @get-convex/self-static-hosting upload [options]
+ *   npx @convex-dev/self-static-hosting upload [options]
  *
  * Options:
  *   --dist <path>            Path to dist directory (default: ./dist)
@@ -100,7 +100,7 @@ function parseArgs(args: string[]): ParsedArgs {
 
 function showHelp(): void {
   console.log(`
-Usage: npx @get-convex/self-static-hosting upload [options]
+Usage: npx @convex-dev/self-static-hosting upload [options]
 
 Upload static files from a dist directory to Convex storage.
 
@@ -113,9 +113,9 @@ Options:
 
 Examples:
   # Upload to Convex storage
-  npx @get-convex/self-static-hosting upload
-  npx @get-convex/self-static-hosting upload --dist ./build --prod
-  npx @get-convex/self-static-hosting upload --build --prod
+  npx @convex-dev/self-static-hosting upload
+  npx @convex-dev/self-static-hosting upload --dist ./build --prod
+  npx @convex-dev/self-static-hosting upload --build --prod
 `);
 }
 

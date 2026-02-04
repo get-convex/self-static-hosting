@@ -3,7 +3,7 @@
  * One-shot deployment command that deploys both Convex backend and static files.
  *
  * Usage:
- *   npx @get-convex/self-static-hosting deploy [options]
+ *   npx @convex-dev/self-static-hosting deploy [options]
  *
  * This command:
  * 1. Builds the frontend with the correct VITE_CONVEX_URL

@@ -1,5 +1,5 @@
 {
-  "name": "@get-convex/self-static-hosting",
+  "name": "@convex-dev/self-static-hosting",
   "description": "A self static hosting component for Convex.",
   "repository": "github:get-convex/self-static-hosting",
   "homepage": "https://github.com/get-convex/self-static-hosting#readme",
@@ -17,7 +17,7 @@
     "self-static-hosting": "./dist/cli/index.js"
   },
   "scripts": {
-    "postinstall": "echo '\\n📦 @get-convex/self-static-hosting installed!\\n\\n   🚀 Quick Setup (Interactive):\\n   npx @get-convex/self-static-hosting setup\\n\\n   🤖 For LLMs: See INTEGRATION.md for complete integration instructions\\n   📖 Manual Setup: npx @get-convex/self-static-hosting init\\n'",
+    "postinstall": "echo '\\n📦 @convex-dev/self-static-hosting installed!\\n\\n   🚀 Quick Setup (Interactive):\\n   npx @convex-dev/self-static-hosting setup\\n\\n   🤖 For LLMs: See INTEGRATION.md for complete integration instructions\\n   📖 Manual Setup: npx @convex-dev/self-static-hosting init\\n'",
     "dev": "run-p -r 'dev:*'",
     "dev:backend": "convex dev --typecheck-components",
     "dev:frontend": "cd example && vite --clearScreen false",

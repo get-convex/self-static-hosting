@@ -3,7 +3,7 @@
  * Interactive setup wizard for Convex Self Static Hosting.
  *
  * Usage:
- *   npx @get-convex/self-static-hosting setup
+ *   npx @convex-dev/self-static-hosting setup
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -43,7 +43,7 @@ function createConvexConfig(): boolean {
     }
     // File exists but doesn't have our component - tell user to add manually
     console.log("\n⚠️  convex/convex.config.ts exists. Please add manually:");
-    console.log('   import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";');
+    console.log('   import selfStaticHosting from "@convex-dev/self-static-hosting/convex.config";');
     console.log("   app.use(selfStaticHosting);\n");
     return false;
   }
@@ -51,7 +51,7 @@ function createConvexConfig(): boolean {
   writeFileSync(
     configPath,
     `import { defineApp } from "convex/server";
-import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";
+import selfStaticHosting from "@convex-dev/self-static-hosting/convex.config";
 
 const app = defineApp();
 app.use(selfStaticHosting);
@@ -80,7 +80,7 @@ function createStaticHostingFile(): boolean {
 import {
   exposeUploadApi,
   exposeDeploymentQuery,
-} from "@get-convex/self-static-hosting";
+} from "@convex-dev/self-static-hosting";
 
 // Internal functions for secure uploads (CLI only)
 export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
@@ -108,7 +108,7 @@ function createHttpFile(): boolean {
       return false;
     }
     console.log("\n⚠️  convex/http.ts exists. Please add manually:");
-    console.log('   import { registerStaticRoutes } from "@get-convex/self-static-hosting";');
+    console.log('   import { registerStaticRoutes } from "@convex-dev/self-static-hosting";');
     console.log("   registerStaticRoutes(http, components.selfStaticHosting);\n");
     return false;
   }
@@ -116,7 +116,7 @@ function createHttpFile(): boolean {
   writeFileSync(
     filePath,
     `import { httpRouter } from "convex/server";
-import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+import { registerStaticRoutes } from "@convex-dev/self-static-hosting";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
@@ -150,7 +150,7 @@ function updatePackageJson(): boolean {
     return false;
   }
 
-  pkg.scripts.deploy = "npx @get-convex/self-static-hosting deploy";
+  pkg.scripts.deploy = "npx @convex-dev/self-static-hosting deploy";
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   success("Added deploy script to package.json");
   return true;

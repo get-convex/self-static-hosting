@@ -3,13 +3,13 @@
  * Output integration instructions for LLMs.
  *
  * Usage:
- *   npx @get-convex/self-static-hosting init
+ *   npx @convex-dev/self-static-hosting init
  */
 
 const instructions = `
 # Convex Self Static Hosting - Integration Instructions
 
-You are integrating the @get-convex/self-static-hosting component into a Convex app.
+You are integrating the @convex-dev/self-static-hosting component into a Convex app.
 This component enables hosting static files (React/Vite apps) directly on Convex.
 
 ## What This Component Does
@@ -28,7 +28,7 @@ This component enables hosting static files (React/Vite apps) directly on Convex
 
 \`\`\`typescript
 import { defineApp } from "convex/server";
-import selfStaticHosting from "@get-convex/self-static-hosting/convex.config";
+import selfStaticHosting from "@convex-dev/self-static-hosting/convex.config";
 
 const app = defineApp();
 app.use(selfStaticHosting);
@@ -44,7 +44,7 @@ import {
   exposeUploadApi,
   exposeDeploymentQuery,
   exposeCachePurgeAction,
-} from "@get-convex/self-static-hosting";
+} from "@convex-dev/self-static-hosting";
 
 // Internal functions for secure uploads (only callable via CLI)
 export const { generateUploadUrl, recordAsset, gcOldAssets, listAssets } =
@@ -62,7 +62,7 @@ export const { purgeCloudflareCache } = exposeCachePurgeAction();
 
 \`\`\`typescript
 import { httpRouter } from "convex/server";
-import { registerStaticRoutes } from "@get-convex/self-static-hosting";
+import { registerStaticRoutes } from "@convex-dev/self-static-hosting";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
@@ -87,7 +87,7 @@ export default http;
 {
   "scripts": {
     "build": "vite build",
-    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod"
+    "deploy:static": "npx @convex-dev/self-static-hosting upload --build --prod"
   }
 }
 \`\`\`
@@ -101,7 +101,7 @@ For custom domains with Cloudflare:
 \`\`\`json
 {
   "scripts": {
-    "deploy:static": "npx @get-convex/self-static-hosting upload --build --prod --domain yourdomain.com"
+    "deploy:static": "npx @convex-dev/self-static-hosting upload --build --prod --domain yourdomain.com"
   }
 }
 \`\`\`
@@ -109,7 +109,7 @@ For custom domains with Cloudflare:
 ### 5. src/App.tsx (optional: add live reload banner)
 
 \`\`\`typescript
-import { UpdateBanner } from "@get-convex/self-static-hosting/react";
+import { UpdateBanner } from "@convex-dev/self-static-hosting/react";
 import { api } from "../convex/_generated/api";
 
 function App() {
@@ -130,7 +130,7 @@ function App() {
 
 Or use the hook for custom UI:
 \`\`\`typescript
-import { useDeploymentUpdates } from "@get-convex/self-static-hosting/react";
+import { useDeploymentUpdates } from "@convex-dev/self-static-hosting/react";
 import { api } from "../convex/_generated/api";
 
 function App() {
@@ -165,7 +165,7 @@ For development/testing:
 npx convex dev --once
 
 # Deploy static files to dev (omit --prod)
-npx @get-convex/self-static-hosting upload --build
+npx @convex-dev/self-static-hosting upload --build
 \`\`\`
 
 ## Optional: Cloudflare CDN with Custom Domain
@@ -177,7 +177,7 @@ For production with a custom domain, edge caching, and DDoS protection.
 Run the interactive wizard:
 
 \`\`\`bash
-npx @get-convex/self-static-hosting setup-cloudflare
+npx @convex-dev/self-static-hosting setup-cloudflare
 \`\`\`
 
 This wizard will:
@@ -216,7 +216,7 @@ npm run deploy:static
 ## CLI Reference
 
 \`\`\`bash
-npx @get-convex/self-static-hosting upload [options]
+npx @convex-dev/self-static-hosting upload [options]
 
 Options:
   -d, --dist <path>        Path to dist directory (default: ./dist)
