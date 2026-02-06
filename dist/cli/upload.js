@@ -249,37 +249,31 @@ async function main() {
     console.log("");
     console.log("✨ Upload complete!");
     // Show the deployment URL
-    let siteUrl = null;
-    if (useProd) {
-        // For production, get URL from convex dashboard --prod
-        try {
-            const result = execSync("npx convex dashboard --prod --no-open", {
-                stdio: "pipe",
-                encoding: "utf-8",
-            });
-            const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
-            if (match) {
-                siteUrl = `https://${match[1]}.convex.site`;
-            }
-        }
-        catch {
-            // Ignore errors
-        }
-    }
-    else {
-        // Dev environment - use .env.local
-        if (existsSync(".env.local")) {
-            const envContent = readFileSync(".env.local", "utf-8");
-            const match = envContent.match(/(?:VITE_)?CONVEX_URL=(.+)/);
-            if (match) {
-                siteUrl = match[1].trim().replace(".convex.cloud", ".convex.site");
-            }
-        }
-    }
+    const siteUrl = getConvexSiteUrl(useProd);
     if (siteUrl) {
         console.log("");
         console.log(`Your app is now available at: ${siteUrl}`);
     }
+}
+/**
+ * Get the Convex site URL (.convex.site) from the cloud URL
+ */
+function getConvexSiteUrl(prod) {
+    try {
+        const envFlag = prod ? "--prod" : "";
+        const result = execSync(`npx convex env get CONVEX_CLOUD_URL ${envFlag}`, {
+            stdio: "pipe",
+            encoding: "utf-8",
+        });
+        const cloudUrl = result.trim();
+        if (cloudUrl && cloudUrl.includes(".convex.cloud")) {
+            return cloudUrl.replace(".convex.cloud", ".convex.site");
+        }
+    }
+    catch {
+        // Ignore errors
+    }
+    return null;
 }
 main().catch((error) => {
     console.error("Upload failed:", error);

@@ -88,19 +88,16 @@ Examples:
  */
 function getConvexProdUrl(): string | null {
   try {
-    const result = execSync("npx convex dashboard --prod --no-open", {
+    const result = execSync("npx convex env get CONVEX_CLOUD_URL --prod", {
       stdio: "pipe",
       encoding: "utf-8",
     });
-    const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
-    if (match) {
-      return `https://${match[1]}.convex.cloud`;
-    }
+    return result.trim() || null;
   } catch {
     // Fall back to env files
   }
 
-  // Try env files
+  // Try env files as fallback
   const envFiles = [".env.production", ".env.production.local", ".env.local"];
   for (const envFile of envFiles) {
     if (existsSync(envFile)) {
@@ -283,13 +280,14 @@ async function main(): Promise<void> {
 
   // Show Convex site URL
   try {
-    const result = execSync("npx convex dashboard --prod --no-open", {
+    const result = execSync("npx convex env get CONVEX_CLOUD_URL --prod", {
       stdio: "pipe",
       encoding: "utf-8",
     });
-    const match = result.match(/dashboard\.convex\.dev\/d\/([a-z0-9-]+)/i);
-    if (match) {
-      console.log(`Frontend: https://${match[1]}.convex.site`);
+    const cloudUrl = result.trim();
+    if (cloudUrl && cloudUrl.includes(".convex.cloud")) {
+      const siteUrl = cloudUrl.replace(".convex.cloud", ".convex.site");
+      console.log(`Frontend: ${siteUrl}`);
     }
   } catch {
     // Ignore
